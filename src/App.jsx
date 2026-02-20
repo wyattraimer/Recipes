@@ -1486,26 +1486,72 @@ function App() {
       <main className="main">
         <div className="container">
           <section className="controls">
-            <div className="controls-actions">
-              <div className="view-toggle-group" role="tablist" aria-label="App view">
-                <button
-                  className={`btn btn-small ${activeView === 'recipes' ? 'btn-primary' : 'btn-secondary'}`}
-                  type="button"
-                  onClick={() => setActiveView('recipes')}
-                >
-                  <i className="fas fa-th-large" />
-                  Recipes
-                </button>
-                <button
-                  className={`btn btn-small ${activeView === 'planner' ? 'btn-primary' : 'btn-secondary'}`}
-                  type="button"
-                  onClick={() => setActiveView('planner')}
-                >
-                  <i className="fas fa-calendar-alt" />
-                  Meal Planner
-                </button>
+            <div className="controls-context">
+              <div className="controls-context-left">
+                <div className="view-toggle-group" role="tablist" aria-label="App view">
+                  <button
+                    className={`btn btn-small ${activeView === 'recipes' ? 'btn-primary' : 'btn-secondary'}`}
+                    type="button"
+                    onClick={() => setActiveView('recipes')}
+                  >
+                    <i className="fas fa-th-large" />
+                    Recipes
+                  </button>
+                  <button
+                    className={`btn btn-small ${activeView === 'planner' ? 'btn-primary' : 'btn-secondary'}`}
+                    type="button"
+                    onClick={() => setActiveView('planner')}
+                  >
+                    <i className="fas fa-calendar-alt" />
+                    Meal Planner
+                  </button>
+                </div>
+
+                <div className="search-box">
+                  <input
+                    type="text"
+                    placeholder="Search recipes..."
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                  />
+                  <i className="fas fa-search" />
+                </div>
+
+                <div className="category-filter">
+                  <select
+                    className="category-select"
+                    value={categoryFilter}
+                    onChange={(event) => setCategoryFilter(event.target.value)}
+                  >
+                    <option value="">All Categories</option>
+                    {CATEGORY_OPTIONS.map((category) => (
+                      <option key={category} value={category}>
+                        {formatCategory(category)}
+                      </option>
+                    ))}
+                  </select>
+                  <i className="fas fa-filter" />
+                </div>
               </div>
 
+              <div className="controls-context-right">
+                <div className="results-count" aria-live="polite">
+                  Showing {filteredRecipes.length} of {recipes.length}
+                </div>
+
+                <label className="theme-switch" aria-label="Toggle dark mode">
+                  <input type="checkbox" checked={theme === 'dark'} onChange={toggleTheme} />
+                  <span className="theme-switch-track">
+                    <span className="theme-switch-knob">
+                      <i className={`fas ${theme === 'dark' ? 'fa-moon' : 'fa-sun'}`} />
+                    </span>
+                  </span>
+                  <span className="theme-switch-label">{theme === 'dark' ? 'Dark' : 'Light'}</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="controls-primary-actions">
               <button className="btn btn-primary" type="button" onClick={() => openModal()}>
                 <i className="fas fa-plus" />
                 Add Recipe
@@ -1514,10 +1560,6 @@ function App() {
                 <i className="fas fa-dice" />
                 Random Recipe
               </button>
-              <button className="btn btn-secondary" type="button" onClick={openShoppingListBuilder}>
-                <i className="fas fa-cart-shopping" />
-                Shopping List
-              </button>
               <button
                 className={`btn ${showPinnedOnly ? 'btn-primary' : 'btn-secondary'}`}
                 type="button"
@@ -1525,6 +1567,13 @@ function App() {
               >
                 <i className={`fas ${showPinnedOnly ? 'fa-star' : 'fa-star-half-alt'}`} />
                 {showPinnedOnly ? 'Pinned Only' : 'All + Pinned'}
+              </button>
+            </div>
+
+            <div className="controls-utility-actions">
+              <button className="btn btn-secondary" type="button" onClick={openShoppingListBuilder}>
+                <i className="fas fa-cart-shopping" />
+                Shopping List
               </button>
               <button className="btn btn-secondary" type="button" onClick={exportRecipes}>
                 <i className="fas fa-download" />
@@ -1545,52 +1594,13 @@ function App() {
                 style={{ display: 'none' }}
                 onChange={handleImportFile}
               />
-              <button className="btn btn-danger" type="button" onClick={deleteAllRecipes}>
-                <i className="fas fa-trash-alt" />
-                Delete All
-              </button>
-            </div>
 
-            <div className="controls-filters">
-              <div className="search-box">
-                <input
-                  type="text"
-                  placeholder="Search recipes..."
-                  value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
-                />
-                <i className="fas fa-search" />
+              <div className="controls-danger-zone">
+                <button className="btn btn-danger" type="button" onClick={deleteAllRecipes}>
+                  <i className="fas fa-trash-alt" />
+                  Delete All
+                </button>
               </div>
-
-              <div className="category-filter">
-                <select
-                  className="category-select"
-                  value={categoryFilter}
-                  onChange={(event) => setCategoryFilter(event.target.value)}
-                >
-                  <option value="">All Categories</option>
-                  {CATEGORY_OPTIONS.map((category) => (
-                    <option key={category} value={category}>
-                      {formatCategory(category)}
-                    </option>
-                  ))}
-                </select>
-                <i className="fas fa-filter" />
-              </div>
-
-              <div className="results-count" aria-live="polite">
-                Showing {filteredRecipes.length} of {recipes.length}
-              </div>
-
-              <label className="theme-switch" aria-label="Toggle dark mode">
-                <input type="checkbox" checked={theme === 'dark'} onChange={toggleTheme} />
-                <span className="theme-switch-track">
-                  <span className="theme-switch-knob">
-                    <i className={`fas ${theme === 'dark' ? 'fa-moon' : 'fa-sun'}`} />
-                  </span>
-                </span>
-                <span className="theme-switch-label">{theme === 'dark' ? 'Dark' : 'Light'}</span>
-              </label>
             </div>
           </section>
 
