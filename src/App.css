@@ -1494,6 +1494,21 @@ body::before {
   }
 }
 
+@media (max-height: 520px) and (orientation: landscape) {
+  .recipe-grid {
+    display: block;
+    column-count: 2;
+    column-gap: 0.95rem;
+  }
+
+  .recipe-card {
+    display: inline-block;
+    width: 100%;
+    margin-bottom: 0.95rem;
+    break-inside: avoid;
+  }
+}
+
 @media (max-width: 520px) {
   .logo {
     font-size: 1.65rem;
