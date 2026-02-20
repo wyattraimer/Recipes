@@ -52,6 +52,10 @@ const DEFAULT_RECIPES = [
 
 const STORAGE_KEY = 'recipeBookmarks'
 const THEME_KEY = 'recipeTheme'
+const MEAL_PLAN_KEY = 'recipeMealPlan'
+
+const MEAL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const MEAL_SLOTS = ['Breakfast', 'Lunch', 'Dinner']
 
 const emptyForm = {
   name: '',
@@ -78,6 +82,13 @@ function formatCategory(category) {
   return category.charAt(0).toUpperCase() + category.slice(1)
 }
 
+function createEmptyMealPlan() {
+  return MEAL_DAYS.reduce((plan, day) => {
+    plan[day] = { Breakfast: '', Lunch: '', Dinner: '' }
+    return plan
+  }, {})
+}
+
 function App() {
   const [recipes, setRecipes] = useState(() => {
     try {
@@ -90,6 +101,8 @@ function App() {
   })
   const [searchTerm, setSearchTerm] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [showPinnedOnly, setShowPinnedOnly] = useState(false)
+  const [activeView, setActiveView] = useState('recipes')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [currentEditingId, setCurrentEditingId] = useState(null)
   const [currentRecipeType, setCurrentRecipeType] = useState('url')
@@ -106,23 +119,57 @@ function App() {
   const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false)
   const [importCandidates, setImportCandidates] = useState([])
   const [importSummary, setImportSummary] = useState(null)
+  const [mealPlan, setMealPlan] = useState(() => {
+    try {
+      const savedPlan = localStorage.getItem(MEAL_PLAN_KEY)
+      if (!savedPlan) {
+        return createEmptyMealPlan()
+      }
+      const parsed = JSON.parse(savedPlan)
+      const base = createEmptyMealPlan()
+      MEAL_DAYS.forEach((day) => {
+        MEAL_SLOTS.forEach((slot) => {
+          base[day][slot] = parsed?.[day]?.[slot] || ''
+        })
+      })
+      return base
+    } catch {
+      return createEmptyMealPlan()
+    }
+  })
 
   const swRegistrationRef = useRef(null)
   const importInputRef = useRef(null)
 
   const filteredRecipes = useMemo(() => {
     const normalizedSearch = searchTerm.toLowerCase().trim()
-    return recipes.filter((recipe) => {
-      const matchesSearch =
-        !normalizedSearch ||
-        recipe.name.toLowerCase().includes(normalizedSearch) ||
-        (recipe.categories || []).some((cat) => cat.toLowerCase().includes(normalizedSearch)) ||
-        (recipe.notes || '').toLowerCase().includes(normalizedSearch)
+    return recipes
+      .filter((recipe) => {
+        const matchesSearch =
+          !normalizedSearch ||
+          recipe.name.toLowerCase().includes(normalizedSearch) ||
+          (recipe.categories || []).some((cat) => cat.toLowerCase().includes(normalizedSearch)) ||
+          (recipe.notes || '').toLowerCase().includes(normalizedSearch)
 
-      const matchesCategory = !categoryFilter || (recipe.categories || []).includes(categoryFilter)
-      return matchesSearch && matchesCategory
+        const matchesCategory = !categoryFilter || (recipe.categories || []).includes(categoryFilter)
+        const matchesPinned = !showPinnedOnly || Boolean(recipe.pinned)
+        return matchesSearch && matchesCategory && matchesPinned
+      })
+      .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)))
+  }, [recipes, searchTerm, categoryFilter, showPinnedOnly])
+
+  const plannerRecipes = useMemo(
+    () => [...recipes].sort((a, b) => a.name.localeCompare(b.name)),
+    [recipes],
+  )
+
+  const recipeNameById = useMemo(() => {
+    const map = new Map()
+    recipes.forEach((recipe) => {
+      map.set(String(recipe.id), recipe.name)
     })
-  }, [recipes, searchTerm, categoryFilter])
+    return map
+  }, [recipes])
 
   const selectedImportCount = useMemo(
     () => importCandidates.filter((candidate) => candidate.selected).length,
@@ -132,6 +179,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(recipes))
   }, [recipes])
+
+  useEffect(() => {
+    localStorage.setItem(MEAL_PLAN_KEY, JSON.stringify(mealPlan))
+  }, [mealPlan])
 
   useEffect(() => {
     document.body.dataset.theme = theme
@@ -319,13 +370,15 @@ function App() {
     if (currentEditingId) {
       setRecipes((prev) =>
         prev.map((recipe) =>
-          recipe.id === currentEditingId ? { ...recipeData, id: currentEditingId } : recipe,
+          recipe.id === currentEditingId
+            ? { ...recipe, ...recipeData, pinned: Boolean(recipe.pinned), id: currentEditingId }
+            : recipe,
         ),
       )
       showMessage('Recipe updated successfully!', 'success')
     } else {
       const existingIds = new Set(recipes.map((recipe) => recipe.id))
-      setRecipes((prev) => [{ ...recipeData, id: makeRecipeId(existingIds) }, ...prev])
+      setRecipes((prev) => [{ ...recipeData, pinned: false, id: makeRecipeId(existingIds) }, ...prev])
       showMessage('Recipe added successfully!', 'success')
     }
 
@@ -339,6 +392,41 @@ function App() {
     }
 
     setRecipes((prev) => prev.filter((recipe) => recipe.id !== id))
+    setMealPlan((prev) => {
+      const next = createEmptyMealPlan()
+      MEAL_DAYS.forEach((day) => {
+        MEAL_SLOTS.forEach((slot) => {
+          const value = prev[day]?.[slot] || ''
+          next[day][slot] = String(value) === String(id) ? '' : value
+        })
+      })
+      return next
+    })
+  }
+
+  function togglePinnedRecipe(id) {
+    setRecipes((prev) =>
+      prev.map((recipe) => (recipe.id === id ? { ...recipe, pinned: !recipe.pinned } : recipe)),
+    )
+  }
+
+  function updateMealPlan(day, slot, recipeId) {
+    setMealPlan((prev) => ({
+      ...prev,
+      [day]: {
+        ...prev[day],
+        [slot]: recipeId,
+      },
+    }))
+  }
+
+  function clearMealPlan() {
+    const shouldClear = window.confirm('Clear all planned meals for the week?')
+    if (!shouldClear) {
+      return
+    }
+    setMealPlan(createEmptyMealPlan())
+    showMessage('Meal planner cleared.', 'info')
   }
 
   function visitRecipe(url) {
@@ -440,6 +528,7 @@ function App() {
         const normalized = {
           ...recipe,
           categories: recipe.categories || (recipe.category ? [recipe.category] : []),
+          pinned: Boolean(recipe.pinned),
         }
         if (normalized.id == null || existingIds.has(normalized.id)) {
           normalized.id = makeRecipeId(existingIds)
@@ -628,6 +717,25 @@ function App() {
         <div className="container">
           <section className="controls">
             <div className="controls-actions">
+              <div className="view-toggle-group" role="tablist" aria-label="App view">
+                <button
+                  className={`btn btn-small ${activeView === 'recipes' ? 'btn-primary' : 'btn-secondary'}`}
+                  type="button"
+                  onClick={() => setActiveView('recipes')}
+                >
+                  <i className="fas fa-th-large" />
+                  Recipes
+                </button>
+                <button
+                  className={`btn btn-small ${activeView === 'planner' ? 'btn-primary' : 'btn-secondary'}`}
+                  type="button"
+                  onClick={() => setActiveView('planner')}
+                >
+                  <i className="fas fa-calendar-alt" />
+                  Meal Planner
+                </button>
+              </div>
+
               <button className="btn btn-primary" type="button" onClick={() => openModal()}>
                 <i className="fas fa-plus" />
                 Add Recipe
@@ -658,6 +766,14 @@ function App() {
               <button className="btn btn-danger btn-small" type="button" onClick={deleteAllRecipes}>
                 <i className="fas fa-trash-alt" />
                 Delete All
+              </button>
+              <button
+                className={`btn btn-small ${showPinnedOnly ? 'btn-primary' : 'btn-secondary'}`}
+                type="button"
+                onClick={() => setShowPinnedOnly((prev) => !prev)}
+              >
+                <i className={`fas ${showPinnedOnly ? 'fa-star' : 'fa-star-half-alt'}`} />
+                {showPinnedOnly ? 'Pinned Only' : 'All + Pinned'}
               </button>
             </div>
 
@@ -704,125 +820,178 @@ function App() {
             </div>
           </section>
 
-          {filteredRecipes.length > 0 ? (
-            <section className="recipe-grid">
-              {filteredRecipes.map((recipe) => {
-                const categories = recipe.categories || (recipe.category ? [recipe.category] : [])
-                const isCustomRecipe =
-                  recipe.type === 'custom' || (!recipe.url && Array.isArray(recipe.ingredients))
+          {activeView === 'recipes' ? (
+            filteredRecipes.length > 0 ? (
+              <section className="recipe-grid">
+                {filteredRecipes.map((recipe) => {
+                  const categories = recipe.categories || (recipe.category ? [recipe.category] : [])
+                  const isCustomRecipe =
+                    recipe.type === 'custom' || (!recipe.url && Array.isArray(recipe.ingredients))
 
-                return (
-                  <article
-                    key={recipe.id}
-                    className={`recipe-card ${highlightedId === recipe.id ? 'highlighted' : ''}`}
-                    data-recipe-id={recipe.id}
-                  >
-                    <div className="recipe-header">
-                      <h3 className="recipe-title">{recipe.name}</h3>
-                      <div className="recipe-categories">
-                        {categories.map((cat) => {
-                          const info = CATEGORIES[cat] || CATEGORIES.other
-                          return (
-                            <span key={cat} className="recipe-category" style={{ backgroundColor: info.color }}>
-                              <i className={`fas ${info.icon}`} />
-                              {cat}
-                            </span>
-                          )
-                        })}
+                  return (
+                    <article
+                      key={recipe.id}
+                      className={`recipe-card ${highlightedId === recipe.id ? 'highlighted' : ''}`}
+                      data-recipe-id={recipe.id}
+                    >
+                      <div className="recipe-header">
+                        <h3 className="recipe-title">{recipe.name}</h3>
+                        <div className="recipe-categories">
+                          {categories.map((cat) => {
+                            const info = CATEGORIES[cat] || CATEGORIES.other
+                            return (
+                              <span key={cat} className="recipe-category" style={{ backgroundColor: info.color }}>
+                                <i className={`fas ${info.icon}`} />
+                                {cat}
+                              </span>
+                            )
+                          })}
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="recipe-body">
-                      {!isCustomRecipe && recipe.url ? (
-                        <a href={recipe.url} className="recipe-url" target="_blank" rel="noreferrer">
-                          {recipe.url}
-                        </a>
-                      ) : null}
-
-                      {recipe.notes ? <p className="recipe-notes">{recipe.notes}</p> : null}
-
-                      {isCustomRecipe ? (
-                        <>
-                          <div className="recipe-section">
-                            <h4 className="recipe-section-title">
-                              <i className="fas fa-list" />
-                              Ingredients
-                            </h4>
-                            <ul className="recipe-list">
-                              {(recipe.ingredients || []).map((item) => (
-                                <li key={item}>{item}</li>
-                              ))}
-                            </ul>
-                          </div>
-
-                          <div className="recipe-section">
-                            <h4 className="recipe-section-title">
-                              <i className="fas fa-directions" />
-                              Directions
-                            </h4>
-                            <ol className="recipe-list">
-                              {(recipe.directions || []).map((step) => (
-                                <li key={step}>{step}</li>
-                              ))}
-                            </ol>
-                          </div>
-                        </>
-                      ) : null}
-
-                      <div className="recipe-actions">
+                      <div className="recipe-body">
                         {!isCustomRecipe && recipe.url ? (
+                          <a href={recipe.url} className="recipe-url" target="_blank" rel="noreferrer">
+                            {recipe.url}
+                          </a>
+                        ) : null}
+
+                        {recipe.notes ? <p className="recipe-notes">{recipe.notes}</p> : null}
+
+                        {isCustomRecipe ? (
                           <>
-                            <button
-                              className="btn btn-small btn-visit"
-                              type="button"
-                              onClick={() => visitRecipe(recipe.url)}
-                            >
-                              <i className="fas fa-external-link-alt" />
-                              Visit
-                            </button>
-                            <button
-                              className="btn btn-small btn-copy"
-                              type="button"
-                              onClick={() => copyRecipeUrl(recipe.url)}
-                            >
-                              <i className="fas fa-copy" />
-                              Copy URL
-                            </button>
+                            <div className="recipe-section">
+                              <h4 className="recipe-section-title">
+                                <i className="fas fa-list" />
+                                Ingredients
+                              </h4>
+                              <ul className="recipe-list">
+                                {(recipe.ingredients || []).map((item) => (
+                                  <li key={item}>{item}</li>
+                                ))}
+                              </ul>
+                            </div>
+
+                            <div className="recipe-section">
+                              <h4 className="recipe-section-title">
+                                <i className="fas fa-directions" />
+                                Directions
+                              </h4>
+                              <ol className="recipe-list">
+                                {(recipe.directions || []).map((step) => (
+                                  <li key={step}>{step}</li>
+                                ))}
+                              </ol>
+                            </div>
                           </>
                         ) : null}
-                        <button className="btn btn-small btn-primary" type="button" onClick={() => openModal(recipe)}>
-                          <i className="fas fa-edit" />
-                          Edit
-                        </button>
-                        <button
-                          className="btn btn-small btn-danger"
-                          type="button"
-                          onClick={() => handleDeleteRecipe(recipe.id)}
-                        >
-                          <i className="fas fa-trash" />
-                          Delete
-                        </button>
+
+                        <div className="recipe-actions">
+                          {!isCustomRecipe && recipe.url ? (
+                            <>
+                              <button
+                                className="btn btn-small btn-visit"
+                                type="button"
+                                onClick={() => visitRecipe(recipe.url)}
+                              >
+                                <i className="fas fa-external-link-alt" />
+                                Visit
+                              </button>
+                              <button
+                                className="btn btn-small btn-copy"
+                                type="button"
+                                onClick={() => copyRecipeUrl(recipe.url)}
+                              >
+                                <i className="fas fa-copy" />
+                                Copy URL
+                              </button>
+                            </>
+                          ) : null}
+                          <button
+                            className={`btn btn-small ${recipe.pinned ? 'btn-pin-active' : 'btn-pin'}`}
+                            type="button"
+                            onClick={() => togglePinnedRecipe(recipe.id)}
+                          >
+                            <i className={`fas ${recipe.pinned ? 'fa-star' : 'fa-star-half-alt'}`} />
+                            {recipe.pinned ? 'Pinned' : 'Pin'}
+                          </button>
+                          <button className="btn btn-small btn-primary" type="button" onClick={() => openModal(recipe)}>
+                            <i className="fas fa-edit" />
+                            Edit
+                          </button>
+                          <button
+                            className="btn btn-small btn-danger"
+                            type="button"
+                            onClick={() => handleDeleteRecipe(recipe.id)}
+                          >
+                            <i className="fas fa-trash" />
+                            Delete
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  </article>
-                )
-              })}
-            </section>
+                    </article>
+                  )
+                })}
+              </section>
+            ) : (
+              <section className="no-recipes">
+                <i className="fas fa-cookie-bite" />
+                <h2>{recipes.length > 0 ? 'No recipes found' : 'No recipes yet!'}</h2>
+                <p>
+                  {recipes.length > 0
+                    ? 'Try adjusting your search terms.'
+                    : 'Start building your collection by adding your favorite recipe websites.'}
+                </p>
+                {recipes.length === 0 ? (
+                  <button className="btn btn-primary" type="button" onClick={() => openModal()}>
+                    <i className="fas fa-plus" />
+                    Add Your First Recipe
+                  </button>
+                ) : null}
+              </section>
+            )
           ) : (
-            <section className="no-recipes">
-              <i className="fas fa-cookie-bite" />
-              <h2>{recipes.length > 0 ? 'No recipes found' : 'No recipes yet!'}</h2>
-              <p>
-                {recipes.length > 0
-                  ? 'Try adjusting your search terms.'
-                  : 'Start building your collection by adding your favorite recipe websites.'}
-              </p>
-              {recipes.length === 0 ? (
-                <button className="btn btn-primary" type="button" onClick={() => openModal()}>
-                  <i className="fas fa-plus" />
-                  Add Your First Recipe
+            <section className="meal-planner">
+              <div className="meal-planner-header">
+                <h2>Weekly Meal Planner</h2>
+                <button className="btn btn-small btn-secondary" type="button" onClick={clearMealPlan}>
+                  <i className="fas fa-eraser" />
+                  Clear Week
                 </button>
+              </div>
+              {plannerRecipes.length === 0 ? (
+                <p className="meal-planner-empty">Add at least one recipe before building your meal plan.</p>
               ) : null}
+              <div className="meal-planner-grid">
+                {MEAL_DAYS.map((day) => (
+                  <article key={day} className="meal-day-card">
+                    <h3>{day}</h3>
+                    {MEAL_SLOTS.map((slot) => (
+                      <label key={`${day}-${slot}`} className="meal-slot">
+                        <span>{slot}</span>
+                        <select
+                          className="meal-slot-select"
+                          value={mealPlan[day]?.[slot] || ''}
+                          onChange={(event) => updateMealPlan(day, slot, event.target.value)}
+                        >
+                          <option value="">No recipe selected</option>
+                          {plannerRecipes.map((recipe) => (
+                            <option key={`${day}-${slot}-${recipe.id}`} value={String(recipe.id)}>
+                              {recipe.pinned ? '★ ' : ''}
+                              {recipe.name}
+                            </option>
+                          ))}
+                        </select>
+                        {mealPlan[day]?.[slot] ? (
+                          <small className="meal-slot-selected">
+                            {recipeNameById.get(String(mealPlan[day][slot])) || 'Recipe not found'}
+                          </small>
+                        ) : null}
+                      </label>
+                    ))}
+                  </article>
+                ))}
+              </div>
             </section>
           )}
         </div>
