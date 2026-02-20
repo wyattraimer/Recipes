@@ -808,6 +808,7 @@ function App() {
         name: form.name.trim(),
         ingredients,
         directions,
+        image: form.image.trim(),
         categories: form.categories,
         notes: form.notes.trim(),
         type: 'custom',
@@ -1893,12 +1894,6 @@ function App() {
                     </div>
                   ) : null}
 
-                  {form.image ? (
-                    <div className="extract-image-preview">
-                      <img src={form.image} alt="Extracted recipe" />
-                    </div>
-                  ) : null}
-
                   <div className="form-group">
                     <label htmlFor="recipeIngredients">Ingredients (optional / extracted)</label>
                     <textarea
@@ -1966,6 +1961,33 @@ function App() {
                   </div>
                 </>
               )}
+
+              <div className="form-group">
+                <label htmlFor="recipeImage">Recipe Image URL (optional)</label>
+                <input
+                  id="recipeImage"
+                  type="url"
+                  placeholder="https://example.com/recipe-image.jpg"
+                  value={form.image}
+                  onChange={(event) => setForm((prev) => ({ ...prev, image: event.target.value }))}
+                />
+              </div>
+
+              {form.image ? (
+                <div className="recipe-image-editor">
+                  <div className="extract-image-preview">
+                    <img src={form.image} alt="Recipe preview" />
+                  </div>
+                  <button
+                    className="btn btn-secondary btn-small"
+                    type="button"
+                    onClick={() => setForm((prev) => ({ ...prev, image: '' }))}
+                  >
+                    <i className="fas fa-image" />
+                    Remove Image
+                  </button>
+                </div>
+              ) : null}
 
               <div className="form-group">
                 <label>Categories (select at least one)</label>
