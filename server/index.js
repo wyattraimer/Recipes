@@ -17,6 +17,13 @@ app.post('/api/recipes/extract', async (req, res) => {
     const extraction = await extractRecipeFromUrl(url)
     res.json({ ok: true, ...extraction })
   } catch (error) {
+    console.error('[recipes.extract] request failed', {
+      url,
+      code: error?.code || 'INTERNAL_ERROR',
+      message: error?.message || 'Unknown extraction error',
+      stack: error?.stack || null,
+    })
+
     const code = error?.code || 'INTERNAL_ERROR'
     const status =
       code === 'INVALID_URL'
