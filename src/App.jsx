@@ -438,6 +438,7 @@ function App() {
   const [showPinnedOnly, setShowPinnedOnly] = useState(false)
   const [activeView, setActiveView] = useState('recipes')
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [focusedRecipe, setFocusedRecipe] = useState(null)
   const [currentEditingId, setCurrentEditingId] = useState(null)
   const [currentRecipeType, setCurrentRecipeType] = useState('url')
   const [form, setForm] = useState(emptyForm)
@@ -622,6 +623,7 @@ function App() {
         setIsImportPreviewOpen(false)
         setIsExportPreviewOpen(false)
         setIsShoppingListOpen(false)
+        setFocusedRecipe(null)
       }
     }
 
@@ -725,6 +727,14 @@ function App() {
     setIsExtracting(false)
     setExtractWarnings([])
     setExtractCandidate(null)
+  }
+
+  function openFocusedRecipe(recipe) {
+    setFocusedRecipe(recipe)
+  }
+
+  function closeFocusedRecipe() {
+    setFocusedRecipe(null)
   }
 
   function toggleCategory(category) {
@@ -1620,8 +1630,17 @@ function App() {
                   return (
                     <article
                       key={recipe.id}
-                      className={`recipe-card ${highlightedId === recipe.id ? 'highlighted' : ''}`}
+                      className={`recipe-card recipe-card-clickable ${highlightedId === recipe.id ? 'highlighted' : ''}`}
                       data-recipe-id={recipe.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openFocusedRecipe(recipe)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          openFocusedRecipe(recipe)
+                        }
+                      }}
                     >
                       <div className="recipe-header">
                         <h3 className="recipe-title">{recipe.name}</h3>
@@ -1681,7 +1700,10 @@ function App() {
                               <button
                                 className="btn btn-small btn-visit"
                                 type="button"
-                                onClick={() => visitRecipe(recipe.url)}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  visitRecipe(recipe.url)
+                                }}
                               >
                                 <i className="fas fa-external-link-alt" />
                                 Visit
@@ -1689,7 +1711,10 @@ function App() {
                               <button
                                 className="btn btn-small btn-copy"
                                 type="button"
-                                onClick={() => copyRecipeUrl(recipe.url)}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  copyRecipeUrl(recipe.url)
+                                }}
                               >
                                 <i className="fas fa-copy" />
                                 Copy URL
@@ -1699,19 +1724,32 @@ function App() {
                           <button
                             className={`btn btn-small ${recipe.pinned ? 'btn-pin-active' : 'btn-pin'}`}
                             type="button"
-                            onClick={() => togglePinnedRecipe(recipe.id)}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              togglePinnedRecipe(recipe.id)
+                            }}
                           >
                             <i className={`fas ${recipe.pinned ? 'fa-star' : 'fa-star-half-alt'}`} />
                             {recipe.pinned ? 'Pinned' : 'Pin'}
                           </button>
-                          <button className="btn btn-small btn-primary" type="button" onClick={() => openModal(recipe)}>
+                          <button
+                            className="btn btn-small btn-primary"
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              openModal(recipe)
+                            }}
+                          >
                             <i className="fas fa-edit" />
                             Edit
                           </button>
                           <button
                             className="btn btn-small btn-danger"
                             type="button"
-                            onClick={() => handleDeleteRecipe(recipe.id)}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleDeleteRecipe(recipe.id)
+                            }}
                           >
                             <i className="fas fa-trash" />
                             Delete
@@ -1785,6 +1823,94 @@ function App() {
           )}
         </div>
       </main>
+
+      {focusedRecipe ? (
+        <div className="focused-recipe-overlay" role="dialog" aria-modal="true" onClick={closeFocusedRecipe}>
+          <article className="focused-recipe-panel" onClick={(event) => event.stopPropagation()}>
+            <button className="focused-recipe-close" type="button" onClick={closeFocusedRecipe}>
+              <i className="fas fa-times" />
+              Close
+            </button>
+
+            <header className="focused-recipe-header">
+              <h2>{focusedRecipe.name}</h2>
+              <div className="recipe-categories">
+                {(focusedRecipe.categories || (focusedRecipe.category ? [focusedRecipe.category] : [])).map((cat) => {
+                  const info = CATEGORIES[cat] || CATEGORIES.other
+                  return (
+                    <span key={`focused-${focusedRecipe.id}-${cat}`} className="recipe-category" style={{ backgroundColor: info.color }}>
+                      <i className={`fas ${info.icon}`} />
+                      {cat}
+                    </span>
+                  )
+                })}
+              </div>
+            </header>
+
+            {focusedRecipe.image ? (
+              <div className="focused-recipe-image-wrap">
+                <img src={focusedRecipe.image} alt={focusedRecipe.name} className="focused-recipe-image" />
+              </div>
+            ) : null}
+
+            {focusedRecipe.notes ? <p className="recipe-notes">{focusedRecipe.notes}</p> : null}
+
+            {Array.isArray(focusedRecipe.ingredients) && focusedRecipe.ingredients.length > 0 ? (
+              <section className="focused-recipe-section">
+                <h3 className="recipe-section-title">
+                  <i className="fas fa-list" />
+                  Ingredients
+                </h3>
+                <ul className="recipe-list">
+                  {focusedRecipe.ingredients.map((item) => (
+                    <li key={`focused-ing-${item}`}>{item}</li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
+            {Array.isArray(focusedRecipe.directions) && focusedRecipe.directions.length > 0 ? (
+              <section className="focused-recipe-section">
+                <h3 className="recipe-section-title">
+                  <i className="fas fa-directions" />
+                  Directions
+                </h3>
+                <ol className="recipe-list">
+                  {focusedRecipe.directions.map((step) => (
+                    <li key={`focused-step-${step}`}>{step}</li>
+                  ))}
+                </ol>
+              </section>
+            ) : null}
+
+            <div className="focused-recipe-actions">
+              {focusedRecipe.url ? (
+                <>
+                  <button className="btn btn-visit" type="button" onClick={() => visitRecipe(focusedRecipe.url)}>
+                    <i className="fas fa-external-link-alt" />
+                    Visit
+                  </button>
+                  <button className="btn btn-copy" type="button" onClick={() => copyRecipeUrl(focusedRecipe.url)}>
+                    <i className="fas fa-copy" />
+                    Copy URL
+                  </button>
+                </>
+              ) : null}
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={() => {
+                  openModal(focusedRecipe)
+                  closeFocusedRecipe()
+                }}
+              >
+                <i className="fas fa-edit" />
+                Edit Recipe
+              </button>
+            </div>
+          </article>
+        </div>
+      ) : null}
 
       {isModalOpen ? (
         <div className="modal show" role="dialog" aria-modal="true" onClick={closeModal}>
@@ -2389,7 +2515,7 @@ function App() {
         </div>
       </footer>
 
-      {showInstallBtn && !isModalOpen && !isImportPreviewOpen && !isExportPreviewOpen && !isShoppingListOpen ? (
+      {showInstallBtn && !isModalOpen && !isImportPreviewOpen && !isExportPreviewOpen && !isShoppingListOpen && !focusedRecipe ? (
         <button id="pwaInstallBtn" className="btn btn-secondary pwa-install-btn" type="button" onClick={handleInstallClick}>
           <i className="fas fa-download" />
           Install App
