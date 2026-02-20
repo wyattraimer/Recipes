@@ -53,6 +53,7 @@ const DEFAULT_RECIPES = [
 const STORAGE_KEY = 'recipeBookmarks'
 const THEME_KEY = 'recipeTheme'
 const MEAL_PLAN_KEY = 'recipeMealPlan'
+const EXTRACT_ENDPOINT = '/api/recipes/extract'
 
 const MEAL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const MEAL_SLOTS = ['Breakfast', 'Lunch', 'Dinner']
@@ -60,6 +61,7 @@ const MEAL_SLOTS = ['Breakfast', 'Lunch', 'Dinner']
 const emptyForm = {
   name: '',
   url: '',
+  image: '',
   ingredients: '',
   directions: '',
   notes: '',
@@ -121,6 +123,9 @@ function App() {
   const [importSummary, setImportSummary] = useState(null)
   const [isExportPreviewOpen, setIsExportPreviewOpen] = useState(false)
   const [exportCandidates, setExportCandidates] = useState([])
+  const [isExtracting, setIsExtracting] = useState(false)
+  const [extractWarnings, setExtractWarnings] = useState([])
+  const [extractCandidate, setExtractCandidate] = useState(null)
   const [mealPlan, setMealPlan] = useState(() => {
     try {
       const savedPlan = localStorage.getItem(MEAL_PLAN_KEY)
@@ -278,6 +283,9 @@ function App() {
   }
 
   function openModal(recipe = null) {
+    setExtractWarnings([])
+    setExtractCandidate(null)
+
     if (!recipe) {
       setCurrentEditingId(null)
       setCurrentRecipeType('url')
@@ -292,6 +300,7 @@ function App() {
     setForm({
       name: recipe.name || '',
       url: recipe.url || '',
+      image: recipe.image || '',
       ingredients: Array.isArray(recipe.ingredients) ? recipe.ingredients.join('\n') : '',
       directions: Array.isArray(recipe.directions) ? recipe.directions.join('\n') : '',
       notes: recipe.notes || '',
@@ -303,6 +312,9 @@ function App() {
   function closeModal() {
     setIsModalOpen(false)
     setCurrentEditingId(null)
+    setIsExtracting(false)
+    setExtractWarnings([])
+    setExtractCandidate(null)
   }
 
   function toggleCategory(category) {
@@ -343,9 +355,21 @@ function App() {
         return
       }
 
+      const extractedIngredients = form.ingredients
+        .split('\n')
+        .map((value) => value.trim())
+        .filter(Boolean)
+      const extractedDirections = form.directions
+        .split('\n')
+        .map((value) => value.trim())
+        .filter(Boolean)
+
       recipeData = {
         name: form.name.trim(),
         url: form.url.trim(),
+        image: form.image.trim(),
+        ingredients: extractedIngredients,
+        directions: extractedDirections,
         categories: form.categories,
         notes: form.notes.trim(),
         type: 'url',
@@ -468,6 +492,82 @@ function App() {
     } catch {
       showMessage('Could not copy URL. Please copy it manually.', 'error')
     }
+  }
+
+  async function handleExtractFromUrl() {
+    const inputUrl = form.url.trim()
+    if (!inputUrl) {
+      showMessage('Enter a recipe URL first.', 'error')
+      return
+    }
+
+    try {
+      setIsExtracting(true)
+      setExtractWarnings([])
+      setExtractCandidate(null)
+
+      const response = await fetch(EXTRACT_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: inputUrl }),
+      })
+
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || !payload?.ok) {
+        const message = payload?.error?.message || 'Could not extract recipe details from this URL'
+        throw new Error(message)
+      }
+
+      const extracted = payload.data
+      const warnings = payload.meta?.warnings || []
+
+      setExtractWarnings(warnings)
+      setExtractCandidate({
+        data: extracted,
+        meta: payload.meta || null,
+        warnings,
+      })
+      showMessage('Recipe details extracted. Review and apply.', 'success')
+    } catch (error) {
+      showMessage(error.message || 'Extraction failed', 'error')
+      setExtractWarnings([])
+      setExtractCandidate(null)
+    } finally {
+      setIsExtracting(false)
+    }
+  }
+
+  function applyExtractCandidate() {
+    if (!extractCandidate?.data) {
+      return
+    }
+
+    const extracted = extractCandidate.data
+    setForm((prev) => ({
+      ...prev,
+      name: extracted.name || prev.name,
+      url: extracted.url || prev.url,
+      image: extracted.image || prev.image,
+      ingredients: (extracted.ingredients || []).join('\n'),
+      directions: (extracted.directions || []).join('\n'),
+      notes: extracted.notes || prev.notes,
+      categories:
+        Array.isArray(extracted.categories) && extracted.categories.length > 0
+          ? extracted.categories
+          : prev.categories,
+    }))
+
+    setExtractCandidate(null)
+    setExtractWarnings([])
+    showMessage('Extracted fields applied to the form.', 'success')
+  }
+
+  function discardExtractCandidate() {
+    setExtractCandidate(null)
+    setExtractWarnings([])
+    showMessage('Extracted preview discarded.', 'info')
   }
 
   function randomizeRecipe() {
@@ -874,8 +974,9 @@ function App() {
               <section className="recipe-grid">
                 {filteredRecipes.map((recipe) => {
                   const categories = recipe.categories || (recipe.category ? [recipe.category] : [])
-                  const isCustomRecipe =
-                    recipe.type === 'custom' || (!recipe.url && Array.isArray(recipe.ingredients))
+                  const hasIngredients = Array.isArray(recipe.ingredients) && recipe.ingredients.length > 0
+                  const hasDirections = Array.isArray(recipe.directions) && recipe.directions.length > 0
+                  const hasDetailedRecipe = hasIngredients || hasDirections
 
                   return (
                     <article
@@ -899,7 +1000,9 @@ function App() {
                       </div>
 
                       <div className="recipe-body">
-                        {!isCustomRecipe && recipe.url ? (
+                        {recipe.image ? <img src={recipe.image} alt={recipe.name} className="recipe-image" /> : null}
+
+                        {recipe.url ? (
                           <a href={recipe.url} className="recipe-url" target="_blank" rel="noreferrer">
                             {recipe.url}
                           </a>
@@ -907,36 +1010,40 @@ function App() {
 
                         {recipe.notes ? <p className="recipe-notes">{recipe.notes}</p> : null}
 
-                        {isCustomRecipe ? (
+                        {hasDetailedRecipe ? (
                           <>
-                            <div className="recipe-section">
-                              <h4 className="recipe-section-title">
-                                <i className="fas fa-list" />
-                                Ingredients
-                              </h4>
-                              <ul className="recipe-list">
-                                {(recipe.ingredients || []).map((item) => (
-                                  <li key={item}>{item}</li>
-                                ))}
-                              </ul>
-                            </div>
+                            {hasIngredients ? (
+                              <div className="recipe-section">
+                                <h4 className="recipe-section-title">
+                                  <i className="fas fa-list" />
+                                  Ingredients
+                                </h4>
+                                <ul className="recipe-list">
+                                  {(recipe.ingredients || []).map((item) => (
+                                    <li key={item}>{item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ) : null}
 
-                            <div className="recipe-section">
-                              <h4 className="recipe-section-title">
-                                <i className="fas fa-directions" />
-                                Directions
-                              </h4>
-                              <ol className="recipe-list">
-                                {(recipe.directions || []).map((step) => (
-                                  <li key={step}>{step}</li>
-                                ))}
-                              </ol>
-                            </div>
+                            {hasDirections ? (
+                              <div className="recipe-section">
+                                <h4 className="recipe-section-title">
+                                  <i className="fas fa-directions" />
+                                  Directions
+                                </h4>
+                                <ol className="recipe-list">
+                                  {(recipe.directions || []).map((step) => (
+                                    <li key={step}>{step}</li>
+                                  ))}
+                                </ol>
+                              </div>
+                            ) : null}
                           </>
                         ) : null}
 
                         <div className="recipe-actions">
-                          {!isCustomRecipe && recipe.url ? (
+                          {recipe.url ? (
                             <>
                               <button
                                 className="btn btn-small btn-visit"
@@ -1089,16 +1196,109 @@ function App() {
               </div>
 
               {currentRecipeType === 'url' ? (
-                <div className="form-group">
-                  <label htmlFor="recipeUrl">Recipe URL</label>
-                  <input
-                    id="recipeUrl"
-                    type="url"
-                    required
-                    value={form.url}
-                    onChange={(event) => setForm((prev) => ({ ...prev, url: event.target.value }))}
-                  />
-                </div>
+                <>
+                  <div className="form-group">
+                    <label htmlFor="recipeUrl">Recipe URL</label>
+                    <input
+                      id="recipeUrl"
+                      type="url"
+                      required
+                      value={form.url}
+                      onChange={(event) => setForm((prev) => ({ ...prev, url: event.target.value }))}
+                    />
+                  </div>
+
+                  <div className="extract-actions">
+                    <button
+                      className="btn btn-secondary"
+                      type="button"
+                      onClick={handleExtractFromUrl}
+                      disabled={isExtracting}
+                    >
+                      <i className={`fas ${isExtracting ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'}`} />
+                      {isExtracting ? 'Extracting...' : 'Extract Details from URL'}
+                    </button>
+                  </div>
+
+                  {extractCandidate ? (
+                    <div className="extract-preview-card">
+                      <div className="extract-preview-header">
+                        <strong>{extractCandidate.data.name || 'Unnamed recipe'}</strong>
+                        {extractCandidate.meta ? (
+                          <span className="extract-meta">
+                            Source: {extractCandidate.meta.source} ({extractCandidate.meta.domain})
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="extract-preview-stats">
+                        <span>Ingredients: {(extractCandidate.data.ingredients || []).length}</span>
+                        <span>Directions: {(extractCandidate.data.directions || []).length}</span>
+                        <span>Categories: {(extractCandidate.data.categories || []).length}</span>
+                      </div>
+
+                      {extractWarnings.length > 0 ? (
+                        <div className="extract-warning-box">
+                          {extractWarnings.map((warning) => (
+                            <p key={warning}>{warning}</p>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {extractCandidate.data.image ? (
+                        <div className="extract-image-preview">
+                          <img src={extractCandidate.data.image} alt="Extracted recipe" />
+                        </div>
+                      ) : null}
+
+                      <div className="extract-preview-actions">
+                        <button className="btn btn-primary btn-small" type="button" onClick={applyExtractCandidate}>
+                          Apply Extracted Fields
+                        </button>
+                        <button className="btn btn-secondary btn-small" type="button" onClick={discardExtractCandidate}>
+                          Discard
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {form.image ? (
+                    <div className="extract-image-preview">
+                      <img src={form.image} alt="Extracted recipe" />
+                    </div>
+                  ) : null}
+
+                  <div className="form-group">
+                    <label htmlFor="recipeIngredients">Ingredients (optional / extracted)</label>
+                    <textarea
+                      id="recipeIngredients"
+                      rows="4"
+                      placeholder="Extracted ingredients will appear here"
+                      value={form.ingredients}
+                      onChange={(event) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          ingredients: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="recipeDirections">Directions (optional / extracted)</label>
+                    <textarea
+                      id="recipeDirections"
+                      rows="4"
+                      placeholder="Extracted directions will appear here"
+                      value={form.directions}
+                      onChange={(event) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          directions: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                </>
               ) : (
                 <>
                   <div className="form-group">
