@@ -372,6 +372,21 @@ body::before {
   align-items: start;
 }
 
+@media (min-width: 1024px) {
+  .recipe-grid {
+    display: block;
+    column-count: 3;
+    column-gap: 1.25rem;
+  }
+
+  .recipe-card {
+    display: inline-block;
+    width: 100%;
+    margin-bottom: 1.25rem;
+    break-inside: avoid;
+  }
+}
+
 .recipe-card {
   position: relative;
   overflow: hidden;
@@ -1455,6 +1470,27 @@ body::before {
   .meal-planner-header {
     flex-direction: column;
     align-items: stretch;
+  }
+}
+
+@media (max-width: 1023px) and (orientation: portrait) {
+  .recipe-grid {
+    display: block;
+    column-count: 2;
+    column-gap: 0.95rem;
+  }
+
+  .recipe-card {
+    display: inline-block;
+    width: 100%;
+    margin-bottom: 0.95rem;
+    break-inside: avoid;
+  }
+}
+
+@media (max-width: 640px) and (orientation: portrait) {
+  .recipe-grid {
+    column-count: 1;
   }
 }
 
