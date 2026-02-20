@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Offline - Recipe Collector</title>
+    <style>
+      body {
+        margin: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        text-align: center;
+        font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #f8f9fa;
+        color: #1d3557;
+      }
+      .offline-card {
+        max-width: 520px;
+        padding: 2rem;
+        border-radius: 12px;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+        background: #fff;
+      }
+      .offline-card h1 {
+        margin: 0 0 0.75rem;
+      }
+      .offline-card p {
+        color: #6c757d;
+      }
+      .home-link {
+        margin-top: 1rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+        color: #fff;
+        background: #e63946;
+        border-radius: 10px;
+        padding: 0.7rem 1.2rem;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="offline-card">
+      <h1>You're offline</h1>
+      <p>Recipe Collector is not connected to the network. You can still view cached pages.</p>
+      <p>If you recently added or changed recipes, reconnect to the internet and refresh.</p>
+      <a href="/" class="home-link">Return Home</a>
+    </div>
+  </body>
+</html>
