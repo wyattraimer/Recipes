@@ -91,6 +91,338 @@ function createEmptyMealPlan() {
   }, {})
 }
 
+function normalizeIngredientKey(value) {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+const UNICODE_FRACTIONS = {
+  '¼': '1/4',
+  '½': '1/2',
+  '¾': '3/4',
+  '⅐': '1/7',
+  '⅑': '1/9',
+  '⅒': '1/10',
+  '⅓': '1/3',
+  '⅔': '2/3',
+  '⅕': '1/5',
+  '⅖': '2/5',
+  '⅗': '3/5',
+  '⅘': '4/5',
+  '⅙': '1/6',
+  '⅚': '5/6',
+  '⅛': '1/8',
+  '⅜': '3/8',
+  '⅝': '5/8',
+  '⅞': '7/8',
+}
+
+const UNIT_ALIASES = {
+  tsp: { aliases: ['tsp', 'teaspoon', 'teaspoons', 't'], type: 'volume', toBase: 4.92892 },
+  tbsp: { aliases: ['tbsp', 'tablespoon', 'tablespoons'], type: 'volume', toBase: 14.7868 },
+  cup: { aliases: ['cup', 'cups', 'c'], type: 'volume', toBase: 236.588 },
+  ml: { aliases: ['ml', 'milliliter', 'milliliters'], type: 'volume', toBase: 1 },
+  l: { aliases: ['l', 'liter', 'liters'], type: 'volume', toBase: 1000 },
+  oz: { aliases: ['oz', 'ounce', 'ounces'], type: 'mass', toBase: 28.3495 },
+  lb: { aliases: ['lb', 'lbs', 'pound', 'pounds'], type: 'mass', toBase: 453.592 },
+  g: { aliases: ['g', 'gram', 'grams'], type: 'mass', toBase: 1 },
+  kg: { aliases: ['kg', 'kilogram', 'kilograms'], type: 'mass', toBase: 1000 },
+  clove: { aliases: ['clove', 'cloves'], type: 'count', toBase: 1 },
+  can: { aliases: ['can', 'cans'], type: 'count', toBase: 1 },
+  piece: { aliases: ['piece', 'pieces'], type: 'count', toBase: 1 },
+  slice: { aliases: ['slice', 'slices'], type: 'count', toBase: 1 },
+  bunch: { aliases: ['bunch', 'bunches'], type: 'count', toBase: 1 },
+  stick: { aliases: ['stick', 'sticks'], type: 'count', toBase: 1 },
+  package: { aliases: ['package', 'packages', 'pkg', 'pkgs'], type: 'count', toBase: 1 },
+}
+
+const UNIT_LOOKUP = Object.entries(UNIT_ALIASES).reduce((lookup, [unit, config]) => {
+  config.aliases.forEach((alias) => {
+    lookup[alias] = unit
+  })
+  return lookup
+}, {})
+
+const NAME_ALIASES = {
+  'all purpose flour': 'flour',
+  'all-purpose flour': 'flour',
+  scallions: 'green onion',
+  scallion: 'green onion',
+  'confectioners sugar': 'powdered sugar',
+  'powdered sugars': 'powdered sugar',
+}
+
+const NOISE_WORDS = new Set([
+  'fresh',
+  'chopped',
+  'diced',
+  'minced',
+  'large',
+  'small',
+  'medium',
+  'optional',
+  'to',
+  'taste',
+])
+
+function replaceUnicodeFractions(text) {
+  return text
+    .split('')
+    .map((char) => (UNICODE_FRACTIONS[char] ? ` ${UNICODE_FRACTIONS[char]} ` : char))
+    .join('')
+}
+
+function parseNumericToken(token) {
+  if (!token) {
+    return null
+  }
+
+  const normalized = token.replace(/,/g, '').trim()
+  if (!normalized) {
+    return null
+  }
+
+  if (/^\d+\/\d+$/.test(normalized)) {
+    const [num, den] = normalized.split('/').map(Number)
+    if (!den) {
+      return null
+    }
+    return num / den
+  }
+
+  if (/^\d+(\.\d+)?$/.test(normalized)) {
+    return Number(normalized)
+  }
+
+  return null
+}
+
+function parseLeadingQuantity(tokens) {
+  if (tokens.length === 0) {
+    return { quantity: null, consumed: 0 }
+  }
+
+  const first = parseNumericToken(tokens[0])
+  if (first == null) {
+    return { quantity: null, consumed: 0 }
+  }
+
+  let consumed = 1
+  let quantity = first
+
+  const second = parseNumericToken(tokens[1])
+  if (second != null && second < 1) {
+    quantity += second
+    consumed += 1
+  }
+
+  return { quantity, consumed }
+}
+
+function normalizeIngredientName(rawName) {
+  const base = rawName
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .split(',')[0]
+    .replace(/[^a-z\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const cleaned = base
+    .split(' ')
+    .filter((word) => !NOISE_WORDS.has(word))
+    .join(' ')
+    .trim()
+
+  if (!cleaned) {
+    return ''
+  }
+
+  const singular = cleaned
+    .split(' ')
+    .map((word) => {
+      if (word.length > 3 && word.endsWith('s') && !word.endsWith('ss')) {
+        return word.slice(0, -1)
+      }
+      return word
+    })
+    .join(' ')
+
+  return NAME_ALIASES[singular] || singular
+}
+
+function parseIngredientLine(rawText) {
+  const replaced = replaceUnicodeFractions(rawText || '')
+  const cleaned = replaced
+    .replace(/^[-*•]+\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!cleaned) {
+    return null
+  }
+
+  const tokens = cleaned.split(' ')
+  const { quantity, consumed } = parseLeadingQuantity(tokens)
+
+  let tokenIndex = consumed
+  let unitKey = ''
+  let unitType = ''
+  let toBase = 1
+
+  const rawUnit = (tokens[tokenIndex] || '').toLowerCase().replace(/[.,]/g, '')
+  if (UNIT_LOOKUP[rawUnit]) {
+    unitKey = UNIT_LOOKUP[rawUnit]
+    unitType = UNIT_ALIASES[unitKey].type
+    toBase = UNIT_ALIASES[unitKey].toBase
+    tokenIndex += 1
+  }
+
+  const remaining = tokens.slice(tokenIndex).join(' ').trim()
+  const normalizedName = normalizeIngredientName(remaining)
+
+  if (!normalizedName) {
+    return {
+      raw: cleaned,
+      convertible: false,
+    }
+  }
+
+  if (quantity == null || !unitType) {
+    return {
+      raw: cleaned,
+      name: normalizedName,
+      convertible: false,
+    }
+  }
+
+  return {
+    raw: cleaned,
+    name: normalizedName,
+    quantity,
+    unitKey,
+    unitType,
+    toBase,
+    convertible: true,
+  }
+}
+
+function toDisplayName(name) {
+  return name
+    .split(' ')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+function roundQuantity(value) {
+  const rounded = Math.round(value * 100) / 100
+  if (Number.isInteger(rounded)) {
+    return String(rounded)
+  }
+  return rounded.toFixed(2).replace(/0$/, '').replace(/\.0$/, '')
+}
+
+function formatTotalUnit(baseAmount, unitType, preferredSystem) {
+  if (unitType === 'count') {
+    return { quantity: baseAmount, unit: '' }
+  }
+
+  if (unitType === 'volume') {
+    if (preferredSystem === 'metric') {
+      if (baseAmount >= 1000) {
+        return { quantity: baseAmount / 1000, unit: 'l' }
+      }
+      return { quantity: baseAmount, unit: 'ml' }
+    }
+
+    if (baseAmount >= UNIT_ALIASES.cup.toBase) {
+      return { quantity: baseAmount / UNIT_ALIASES.cup.toBase, unit: 'cup' }
+    }
+    if (baseAmount >= UNIT_ALIASES.tbsp.toBase) {
+      return { quantity: baseAmount / UNIT_ALIASES.tbsp.toBase, unit: 'tbsp' }
+    }
+    return { quantity: baseAmount / UNIT_ALIASES.tsp.toBase, unit: 'tsp' }
+  }
+
+  if (preferredSystem === 'metric') {
+    if (baseAmount >= 1000) {
+      return { quantity: baseAmount / 1000, unit: 'kg' }
+    }
+    return { quantity: baseAmount, unit: 'g' }
+  }
+
+  if (baseAmount >= UNIT_ALIASES.lb.toBase) {
+    return { quantity: baseAmount / UNIT_ALIASES.lb.toBase, unit: 'lb' }
+  }
+  return { quantity: baseAmount / UNIT_ALIASES.oz.toBase, unit: 'oz' }
+}
+
+function buildShoppingAggregation(candidates, preferredSystem) {
+  const totalsMap = new Map()
+  const unresolvedMap = new Map()
+
+  candidates
+    .filter((candidate) => candidate.selected)
+    .forEach((candidate) => {
+      const ingredients = Array.isArray(candidate.recipe.ingredients) ? candidate.recipe.ingredients : []
+      ingredients.forEach((rawIngredient) => {
+        const parsed = parseIngredientLine(rawIngredient)
+        if (!parsed) {
+          return
+        }
+
+        if (!parsed.convertible) {
+          const unresolvedKey = normalizeIngredientKey(parsed.raw)
+          const unresolved = unresolvedMap.get(unresolvedKey) || {
+            key: `unresolved:${unresolvedKey}`,
+            text: parsed.raw,
+            count: 0,
+          }
+          unresolved.count += 1
+          unresolvedMap.set(unresolvedKey, unresolved)
+          return
+        }
+
+        const totalKey =
+          parsed.unitType === 'count'
+            ? `${parsed.unitType}:${parsed.unitKey}:${parsed.name}`
+            : `${parsed.unitType}:${parsed.name}`
+
+        const existing = totalsMap.get(totalKey) || {
+          key: `total:${totalKey}`,
+          name: parsed.name,
+          unitType: parsed.unitType,
+          unitKey: parsed.unitKey,
+          baseAmount: 0,
+          sourceCount: 0,
+        }
+
+        existing.baseAmount += parsed.quantity * parsed.toBase
+        existing.sourceCount += 1
+        totalsMap.set(totalKey, existing)
+      })
+    })
+
+  const totals = Array.from(totalsMap.values())
+    .map((entry) => {
+      if (entry.unitType === 'count') {
+        return {
+          ...entry,
+          amountLabel: `${roundQuantity(entry.baseAmount)} ${entry.unitKey} ${toDisplayName(entry.name)}`,
+        }
+      }
+
+      const display = formatTotalUnit(entry.baseAmount, entry.unitType, preferredSystem)
+      return {
+        ...entry,
+        amountLabel: `${roundQuantity(display.quantity)} ${display.unit} ${toDisplayName(entry.name)}`,
+      }
+    })
+    .sort((a, b) => a.amountLabel.localeCompare(b.amountLabel))
+
+  const unresolved = Array.from(unresolvedMap.values()).sort((a, b) => a.text.localeCompare(b.text))
+  return { totals, unresolved }
+}
+
 function App() {
   const [recipes, setRecipes] = useState(() => {
     try {
@@ -123,6 +455,15 @@ function App() {
   const [importSummary, setImportSummary] = useState(null)
   const [isExportPreviewOpen, setIsExportPreviewOpen] = useState(false)
   const [exportCandidates, setExportCandidates] = useState([])
+  const [isShoppingListOpen, setIsShoppingListOpen] = useState(false)
+  const [shoppingCandidates, setShoppingCandidates] = useState([])
+  const [shoppingChecklist, setShoppingChecklist] = useState({})
+  const [shoppingUnitSystem, setShoppingUnitSystem] = useState('us')
+  const [shoppingMergeSelection, setShoppingMergeSelection] = useState({})
+  const [shoppingManualGroups, setShoppingManualGroups] = useState([])
+  const [shoppingManualText, setShoppingManualText] = useState('')
+  const [shoppingManualEditingKey, setShoppingManualEditingKey] = useState('')
+  const [shoppingManualEditDraft, setShoppingManualEditDraft] = useState('')
   const [isExtracting, setIsExtracting] = useState(false)
   const [extractWarnings, setExtractWarnings] = useState([])
   const [extractCandidate, setExtractCandidate] = useState(null)
@@ -186,6 +527,34 @@ function App() {
   const selectedExportCount = useMemo(
     () => exportCandidates.filter((candidate) => candidate.selected).length,
     [exportCandidates],
+  )
+
+  const selectedShoppingCount = useMemo(
+    () => shoppingCandidates.filter((candidate) => candidate.selected).length,
+    [shoppingCandidates],
+  )
+
+  const shoppingAggregation = useMemo(
+    () => buildShoppingAggregation(shoppingCandidates, shoppingUnitSystem),
+    [shoppingCandidates, shoppingUnitSystem],
+  )
+
+  const combinedShoppingItems = shoppingAggregation.totals
+  const unresolvedShoppingItems = shoppingAggregation.unresolved
+  const unresolvedByKey = useMemo(
+    () => Object.fromEntries(unresolvedShoppingItems.map((item) => [item.key, item])),
+    [unresolvedShoppingItems],
+  )
+  const hiddenUnresolvedKeys = useMemo(() => {
+    const hidden = new Set()
+    shoppingManualGroups.forEach((group) => {
+      group.sourceKeys.forEach((key) => hidden.add(key))
+    })
+    return hidden
+  }, [shoppingManualGroups])
+  const visibleUnresolvedItems = useMemo(
+    () => unresolvedShoppingItems.filter((item) => !hiddenUnresolvedKeys.has(item.key)),
+    [unresolvedShoppingItems, hiddenUnresolvedKeys],
   )
 
   useEffect(() => {
@@ -252,12 +621,53 @@ function App() {
         setIsModalOpen(false)
         setIsImportPreviewOpen(false)
         setIsExportPreviewOpen(false)
+        setIsShoppingListOpen(false)
       }
     }
 
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [])
+
+  useEffect(() => {
+    setShoppingChecklist((prev) => {
+      const validKeys = new Set([
+        ...combinedShoppingItems.map((item) => item.key),
+        ...visibleUnresolvedItems.map((item) => item.key),
+        ...shoppingManualGroups.map((group) => group.key),
+      ])
+      const next = {}
+      Object.entries(prev).forEach(([key, checked]) => {
+        if (validKeys.has(key)) {
+          next[key] = checked
+        }
+      })
+      return next
+    })
+  }, [combinedShoppingItems, visibleUnresolvedItems, shoppingManualGroups])
+
+  useEffect(() => {
+    const validKeys = new Set(unresolvedShoppingItems.map((item) => item.key))
+
+    setShoppingMergeSelection((prev) => {
+      const next = {}
+      Object.entries(prev).forEach(([key, selected]) => {
+        if (validKeys.has(key)) {
+          next[key] = selected
+        }
+      })
+      return next
+    })
+
+    setShoppingManualGroups((prev) =>
+      prev
+        .map((group) => ({
+          ...group,
+          sourceKeys: group.sourceKeys.filter((key) => validKeys.has(key)),
+        }))
+        .filter((group) => group.sourceKeys.length > 0),
+    )
+  }, [unresolvedShoppingItems])
 
   function showMessage(text, type = 'info') {
     const id = Date.now() + Math.random()
@@ -668,6 +1078,217 @@ function App() {
     )
   }
 
+  function openShoppingListBuilder() {
+    const candidates = recipes
+      .filter((recipe) => Array.isArray(recipe.ingredients) && recipe.ingredients.length > 0)
+      .map((recipe) => ({
+        previewId: `shop-${recipe.id}`,
+        recipe,
+        selected: true,
+      }))
+
+    if (candidates.length === 0) {
+      showMessage('Add recipes with ingredients to build a shopping list.', 'info')
+      return
+    }
+
+    setShoppingCandidates(candidates)
+    setShoppingChecklist({})
+    setShoppingMergeSelection({})
+    setShoppingManualGroups([])
+    setShoppingManualText('')
+    setIsShoppingListOpen(true)
+  }
+
+  function closeShoppingListBuilder() {
+    setIsShoppingListOpen(false)
+    setShoppingCandidates([])
+    setShoppingChecklist({})
+    setShoppingMergeSelection({})
+    setShoppingManualGroups([])
+    setShoppingManualText('')
+    setShoppingManualEditingKey('')
+    setShoppingManualEditDraft('')
+  }
+
+  function toggleShoppingCandidate(previewId) {
+    setShoppingCandidates((prev) =>
+      prev.map((candidate) =>
+        candidate.previewId === previewId ? { ...candidate, selected: !candidate.selected } : candidate,
+      ),
+    )
+  }
+
+  function setAllShoppingCandidates(selected) {
+    setShoppingCandidates((prev) => prev.map((candidate) => ({ ...candidate, selected })))
+  }
+
+  function toggleShoppingItemChecked(itemKey) {
+    setShoppingChecklist((prev) => ({
+      ...prev,
+      [itemKey]: !prev[itemKey],
+    }))
+  }
+
+  function clearShoppingChecklist() {
+    setShoppingChecklist({})
+  }
+
+  function toggleShoppingMergeSelection(itemKey) {
+    if (hiddenUnresolvedKeys.has(itemKey)) {
+      return
+    }
+    setShoppingMergeSelection((prev) => ({
+      ...prev,
+      [itemKey]: !prev[itemKey],
+    }))
+  }
+
+  function createManualMergeGroup() {
+    const selectedKeys = visibleUnresolvedItems
+      .map((item) => item.key)
+      .filter((key) => Boolean(shoppingMergeSelection[key]))
+
+    if (selectedKeys.length < 2) {
+      showMessage('Select at least two Needs Review items to merge.', 'error')
+      return
+    }
+
+    const defaultLabel = selectedKeys
+      .map((key) => unresolvedByKey[key]?.text)
+      .filter(Boolean)
+      .join(' + ')
+
+    const normalizedCustom = shoppingManualText.trim()
+    const label = normalizedCustom || defaultLabel
+
+    if (!label) {
+      showMessage('Please provide a label for the merged item.', 'error')
+      return
+    }
+
+    const group = {
+      key: `manual:${Date.now()}:${Math.random().toString(16).slice(2)}`,
+      text: label,
+      sourceKeys: selectedKeys,
+      count: selectedKeys.reduce((sum, key) => sum + (unresolvedByKey[key]?.count || 1), 0),
+    }
+
+    setShoppingManualGroups((prev) => [...prev, group])
+    setShoppingMergeSelection((prev) => {
+      const next = { ...prev }
+      selectedKeys.forEach((key) => {
+        delete next[key]
+      })
+      return next
+    })
+    setShoppingManualText('')
+    showMessage('Merged selected items into a manual shopping entry.', 'success')
+  }
+
+  function splitManualMergeGroup(groupKey) {
+    setShoppingManualGroups((prev) => prev.filter((group) => group.key !== groupKey))
+    setShoppingChecklist((prev) => {
+      const next = { ...prev }
+      delete next[groupKey]
+      return next
+    })
+    if (shoppingManualEditingKey === groupKey) {
+      setShoppingManualEditingKey('')
+      setShoppingManualEditDraft('')
+    }
+    showMessage('Manual merged item was split back into original entries.', 'info')
+  }
+
+  function startEditingManualMergeGroup(group) {
+    setShoppingManualEditingKey(group.key)
+    setShoppingManualEditDraft(group.text)
+  }
+
+  function cancelEditingManualMergeGroup() {
+    setShoppingManualEditingKey('')
+    setShoppingManualEditDraft('')
+  }
+
+  function saveEditingManualMergeGroup(groupKey) {
+    setShoppingManualGroups((prev) =>
+      prev.map((group) => {
+        if (group.key !== groupKey) {
+          return group
+        }
+
+        const normalized = shoppingManualEditDraft.trim()
+        if (normalized) {
+          return { ...group, text: normalized }
+        }
+
+        const fallback =
+          group.sourceKeys
+            .map((key) => unresolvedByKey[key]?.text)
+            .filter(Boolean)
+            .join(' + ') || 'Merged item'
+
+        return { ...group, text: fallback }
+      }),
+    )
+
+    setShoppingManualEditingKey('')
+    setShoppingManualEditDraft('')
+  }
+
+  function exportShoppingListText() {
+    const selectedRecipes = shoppingCandidates.filter((candidate) => candidate.selected)
+    if (selectedRecipes.length === 0) {
+      showMessage('Select at least one recipe before exporting a shopping list.', 'error')
+      return
+    }
+
+    const lines = []
+    lines.push('Recipe Collector Shopping List')
+    lines.push(`Generated: ${new Date().toLocaleString()}`)
+    lines.push('')
+    lines.push('Selected Recipes:')
+    selectedRecipes.forEach((candidate) => lines.push(`- ${candidate.recipe.name}`))
+    lines.push('')
+    lines.push('Combined Totals:')
+
+    combinedShoppingItems.forEach((item) => {
+      const mark = shoppingChecklist[item.key] ? '[x]' : '[ ]'
+      lines.push(`${mark} ${item.amountLabel}`)
+    })
+
+    if (visibleUnresolvedItems.length > 0) {
+      lines.push('')
+      lines.push('Needs Review (not safely totaled):')
+      visibleUnresolvedItems.forEach((item) => {
+        const mark = shoppingChecklist[item.key] ? '[x]' : '[ ]'
+        lines.push(`${mark} ${item.text}${item.count > 1 ? ` (${item.count} recipes)` : ''}`)
+      })
+    }
+
+    if (shoppingManualGroups.length > 0) {
+      lines.push('')
+      lines.push('Manual Merge Items:')
+      shoppingManualGroups.forEach((group) => {
+        const mark = shoppingChecklist[group.key] ? '[x]' : '[ ]'
+        lines.push(`${mark} ${group.text}${group.count > 1 ? ` (${group.count} lines)` : ''}`)
+      })
+    }
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
+    const downloadUrl = URL.createObjectURL(blob)
+    const fileName = `shopping-list-${new Date().toISOString().split('T')[0]}.txt`
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(downloadUrl)
+
+    showMessage('Shopping list exported.', 'success')
+  }
+
   function filterImportedRecipes(newRecipes) {
     const existingIds = new Set(recipes.map((recipe) => recipe.id))
 
@@ -892,6 +1513,10 @@ function App() {
               <button className="btn btn-secondary" type="button" onClick={randomizeRecipe}>
                 <i className="fas fa-dice" />
                 Random Recipe
+              </button>
+              <button className="btn btn-secondary" type="button" onClick={openShoppingListBuilder}>
+                <i className="fas fa-cart-shopping" />
+                Shopping List
               </button>
               <button
                 className={`btn ${showPinnedOnly ? 'btn-primary' : 'btn-secondary'}`}
@@ -1511,6 +2136,216 @@ function App() {
         </div>
       ) : null}
 
+      {isShoppingListOpen ? (
+        <div className="modal show" role="dialog" aria-modal="true" onClick={closeShoppingListBuilder}>
+          <div className="modal-content shopping-list-modal" onClick={(event) => event.stopPropagation()}>
+            <span className="close" onClick={closeShoppingListBuilder}>
+              &times;
+            </span>
+            <h2>Shopping List Builder</h2>
+            <p className="import-preview-subtitle">
+              Select recipes and get safe combined totals by parsed quantity and unit. Ambiguous entries appear in
+              Needs Review.
+            </p>
+
+            <div className="import-preview-actions">
+              <button className="btn btn-secondary btn-small" type="button" onClick={() => setAllShoppingCandidates(true)}>
+                Select All
+              </button>
+              <button className="btn btn-secondary btn-small" type="button" onClick={() => setAllShoppingCandidates(false)}>
+                Clear All
+              </button>
+              <button className="btn btn-secondary btn-small" type="button" onClick={clearShoppingChecklist}>
+                Uncheck All
+              </button>
+              <button className="btn btn-secondary btn-small" type="button" onClick={exportShoppingListText}>
+                Export List
+              </button>
+              <span className="shopping-list-count">Recipes selected: {selectedShoppingCount}</span>
+            </div>
+
+            <div className="shopping-unit-toggle" role="group" aria-label="Preferred units">
+              <button
+                type="button"
+                className={`btn btn-small ${shoppingUnitSystem === 'us' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setShoppingUnitSystem('us')}
+              >
+                US Units
+              </button>
+              <button
+                type="button"
+                className={`btn btn-small ${shoppingUnitSystem === 'metric' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setShoppingUnitSystem('metric')}
+              >
+                Metric Units
+              </button>
+            </div>
+
+            <div className="shopping-list-layout">
+              <section className="shopping-list-recipes">
+                <h3>Recipes</h3>
+                <div className="shopping-list-recipe-items">
+                  {shoppingCandidates.map((candidate) => (
+                    <label key={candidate.previewId} className="shopping-list-recipe-item">
+                      <input
+                        type="checkbox"
+                        checked={candidate.selected}
+                        onChange={() => toggleShoppingCandidate(candidate.previewId)}
+                      />
+                      <span>
+                        {candidate.recipe.name}
+                        <small>{(candidate.recipe.ingredients || []).length} ingredients</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </section>
+
+              <section className="shopping-list-ingredients">
+                <h3>Combined Totals ({combinedShoppingItems.length})</h3>
+                {combinedShoppingItems.length > 0 ? (
+                  <div className="shopping-list-ingredient-items">
+                    {combinedShoppingItems.map((item) => (
+                      <label key={item.key} className="shopping-list-ingredient-item">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(shoppingChecklist[item.key])}
+                          onChange={() => toggleShoppingItemChecked(item.key)}
+                        />
+                        <span className={shoppingChecklist[item.key] ? 'shopping-list-item-checked' : ''}>
+                          {item.amountLabel}
+                          {item.sourceCount > 1 ? ` (${item.sourceCount} lines)` : ''}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="shopping-list-empty">Select at least one recipe with parseable ingredients.</p>
+                )}
+
+                {visibleUnresolvedItems.length > 0 ? (
+                  <>
+                    <h3 className="shopping-list-subtitle">Needs Review ({visibleUnresolvedItems.length})</h3>
+                    <p className="shopping-merge-legend">
+                      <span>
+                        <strong>Left checkbox:</strong> mark item done in checklist
+                      </span>
+                      <span>
+                        <strong>Right checkbox:</strong> select item for manual merge
+                      </span>
+                    </p>
+                    <div className="shopping-manual-tools">
+                      <input
+                        type="text"
+                        className="shopping-manual-input"
+                        placeholder="Optional merged label (e.g. fresh herbs mix)"
+                        value={shoppingManualText}
+                        onChange={(event) => setShoppingManualText(event.target.value)}
+                      />
+                      <button className="btn btn-secondary btn-small" type="button" onClick={createManualMergeGroup}>
+                        Merge Selected
+                      </button>
+                    </div>
+                    <div className="shopping-list-ingredient-items">
+                      {visibleUnresolvedItems.map((item) => (
+                        <label key={item.key} className="shopping-list-ingredient-item shopping-list-unresolved-item">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(shoppingChecklist[item.key])}
+                            onChange={() => toggleShoppingItemChecked(item.key)}
+                            title="Checklist done"
+                          />
+                          <input
+                            type="checkbox"
+                            className="shopping-merge-check"
+                            checked={Boolean(shoppingMergeSelection[item.key])}
+                            onChange={() => toggleShoppingMergeSelection(item.key)}
+                            title="Select for manual merge"
+                          />
+                          <span className={shoppingChecklist[item.key] ? 'shopping-list-item-checked' : ''}>
+                            {item.text}
+                            {item.count > 1 ? ` (${item.count} recipes)` : ''}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+
+                {shoppingManualGroups.length > 0 ? (
+                  <>
+                    <h3 className="shopping-list-subtitle">Manual Merge Items ({shoppingManualGroups.length})</h3>
+                    <div className="shopping-list-ingredient-items">
+                      {shoppingManualGroups.map((group) => (
+                        <div key={group.key} className="shopping-list-ingredient-item shopping-list-manual-item">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(shoppingChecklist[group.key])}
+                            onChange={() => toggleShoppingItemChecked(group.key)}
+                          />
+                          {shoppingManualEditingKey === group.key ? (
+                            <input
+                              type="text"
+                              className={`shopping-manual-item-input ${shoppingChecklist[group.key] ? 'shopping-list-item-checked' : ''}`}
+                              value={shoppingManualEditDraft}
+                              onChange={(event) => setShoppingManualEditDraft(event.target.value)}
+                            />
+                          ) : (
+                            <span className={`shopping-manual-item-text ${shoppingChecklist[group.key] ? 'shopping-list-item-checked' : ''}`}>
+                              {group.text}
+                            </span>
+                          )}
+                          <span className="shopping-manual-item-count">
+                            {group.count > 1 ? `${group.count} lines` : '1 line'}
+                          </span>
+                          <div className="shopping-manual-actions">
+                            {shoppingManualEditingKey === group.key ? (
+                              <>
+                                <button
+                                  className="btn btn-small btn-primary"
+                                  type="button"
+                                  onClick={() => saveEditingManualMergeGroup(group.key)}
+                                >
+                                  Save
+                                </button>
+                                <button className="btn btn-small btn-secondary" type="button" onClick={cancelEditingManualMergeGroup}>
+                                  Cancel
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                className="btn btn-small btn-secondary"
+                                type="button"
+                                onClick={() => startEditingManualMergeGroup(group)}
+                              >
+                                Edit
+                              </button>
+                            )}
+                            <button
+                              className="btn btn-small btn-secondary"
+                              type="button"
+                              onClick={() => splitManualMergeGroup(group.key)}
+                            >
+                              Split
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+              </section>
+            </div>
+
+            <div className="import-preview-footer">
+              <button className="btn btn-secondary" type="button" onClick={closeShoppingListBuilder}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <footer className="footer">
         <div className="container">
           <p>
@@ -1519,7 +2354,7 @@ function App() {
         </div>
       </footer>
 
-      {showInstallBtn && !isModalOpen && !isImportPreviewOpen && !isExportPreviewOpen ? (
+      {showInstallBtn && !isModalOpen && !isImportPreviewOpen && !isExportPreviewOpen && !isShoppingListOpen ? (
         <button id="pwaInstallBtn" className="btn btn-secondary pwa-install-btn" type="button" onClick={handleInstallClick}>
           <i className="fas fa-download" />
           Install App
