@@ -116,6 +116,15 @@ body::before {
   backdrop-filter: blur(10px);
 }
 
+.controls-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+  margin-top: 0.1rem;
+}
+
 .view-toggle-group {
   display: inline-flex;
   gap: 0.45rem;
@@ -1379,6 +1388,20 @@ body::before {
   }
 }
 
+@media (max-width: 1023px) and (orientation: landscape) {
+  .controls-danger-zone {
+    margin-left: auto;
+    justify-self: end;
+  }
+}
+
+@media (min-width: 900px) and (max-width: 1023px) {
+  .controls-danger-zone {
+    margin-left: auto;
+    justify-self: end;
+  }
+}
+
 @media (max-width: 768px) {
   .header {
     margin: 12px;
@@ -1495,9 +1518,21 @@ body::before {
     margin-left: auto;
   }
 
+  .controls-label {
+    margin-top: 0.25rem;
+  }
+
   .meal-planner-header {
     flex-direction: column;
     align-items: stretch;
+  }
+}
+
+@media (max-width: 768px) and (orientation: landscape) {
+  .controls-danger-zone {
+    grid-column: auto;
+    margin-left: auto;
+    justify-self: end;
   }
 }
 

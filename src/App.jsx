@@ -1486,6 +1486,7 @@ function App() {
       <main className="main">
         <div className="container">
           <section className="controls">
+            <div className="controls-label">Browse</div>
             <div className="controls-context">
               <div className="controls-context-left">
                 <div className="view-toggle-group" role="tablist" aria-label="App view">
@@ -1551,6 +1552,7 @@ function App() {
               </div>
             </div>
 
+            <div className="controls-label">Actions</div>
             <div className="controls-primary-actions">
               <button className="btn btn-primary" type="button" onClick={() => openModal()}>
                 <i className="fas fa-plus" />
@@ -1570,6 +1572,7 @@ function App() {
               </button>
             </div>
 
+            <div className="controls-label">Data & Tools</div>
             <div className="controls-utility-actions">
               <button className="btn btn-secondary" type="button" onClick={openShoppingListBuilder}>
                 <i className="fas fa-cart-shopping" />
