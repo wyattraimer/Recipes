@@ -119,6 +119,8 @@ function App() {
   const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false)
   const [importCandidates, setImportCandidates] = useState([])
   const [importSummary, setImportSummary] = useState(null)
+  const [isExportPreviewOpen, setIsExportPreviewOpen] = useState(false)
+  const [exportCandidates, setExportCandidates] = useState([])
   const [mealPlan, setMealPlan] = useState(() => {
     try {
       const savedPlan = localStorage.getItem(MEAL_PLAN_KEY)
@@ -174,6 +176,11 @@ function App() {
   const selectedImportCount = useMemo(
     () => importCandidates.filter((candidate) => candidate.selected).length,
     [importCandidates],
+  )
+
+  const selectedExportCount = useMemo(
+    () => exportCandidates.filter((candidate) => candidate.selected).length,
+    [exportCandidates],
   )
 
   useEffect(() => {
@@ -239,6 +246,7 @@ function App() {
       if (event.key === 'Escape') {
         setIsModalOpen(false)
         setIsImportPreviewOpen(false)
+        setIsExportPreviewOpen(false)
       }
     }
 
@@ -258,6 +266,11 @@ function App() {
     setIsImportPreviewOpen(false)
     setImportCandidates([])
     setImportSummary(null)
+  }
+
+  function closeExportPreview() {
+    setIsExportPreviewOpen(false)
+    setExportCandidates([])
   }
 
   function toggleTheme() {
@@ -499,10 +512,42 @@ function App() {
       return
     }
 
+    setExportCandidates(
+      recipes.map((recipe, index) => ({
+        previewId: `export-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
+        recipe,
+        selected: true,
+      })),
+    )
+    setIsExportPreviewOpen(true)
+  }
+
+  function toggleExportCandidate(previewId) {
+    setExportCandidates((prev) =>
+      prev.map((candidate) =>
+        candidate.previewId === previewId ? { ...candidate, selected: !candidate.selected } : candidate,
+      ),
+    )
+  }
+
+  function setAllExportCandidates(selected) {
+    setExportCandidates((prev) => prev.map((candidate) => ({ ...candidate, selected })))
+  }
+
+  function confirmExportSelection() {
+    const selectedRecipes = exportCandidates
+      .filter((candidate) => candidate.selected)
+      .map((candidate) => candidate.recipe)
+
+    if (selectedRecipes.length === 0) {
+      showMessage('Select at least one recipe to export.', 'error')
+      return
+    }
+
     const exportData = {
       version: '1.0',
       exportDate: new Date().toISOString(),
-      recipes,
+      recipes: selectedRecipes,
     }
 
     const jsonString = JSON.stringify(exportData, null, 2)
@@ -516,7 +561,11 @@ function App() {
     link.click()
     document.body.removeChild(link)
     URL.revokeObjectURL(downloadUrl)
-    showMessage(`Exported ${recipes.length} recipe${recipes.length !== 1 ? 's' : ''} successfully!`, 'success')
+    closeExportPreview()
+    showMessage(
+      `Exported ${selectedRecipes.length} recipe${selectedRecipes.length !== 1 ? 's' : ''} successfully!`,
+      'success',
+    )
   }
 
   function filterImportedRecipes(newRecipes) {
@@ -744,6 +793,14 @@ function App() {
                 <i className="fas fa-dice" />
                 Random Recipe
               </button>
+              <button
+                className={`btn ${showPinnedOnly ? 'btn-primary' : 'btn-secondary'}`}
+                type="button"
+                onClick={() => setShowPinnedOnly((prev) => !prev)}
+              >
+                <i className={`fas ${showPinnedOnly ? 'fa-star' : 'fa-star-half-alt'}`} />
+                {showPinnedOnly ? 'Pinned Only' : 'All + Pinned'}
+              </button>
               <button className="btn btn-secondary" type="button" onClick={exportRecipes}>
                 <i className="fas fa-download" />
                 Export
@@ -763,17 +820,9 @@ function App() {
                 style={{ display: 'none' }}
                 onChange={handleImportFile}
               />
-              <button className="btn btn-danger btn-small" type="button" onClick={deleteAllRecipes}>
+              <button className="btn btn-danger" type="button" onClick={deleteAllRecipes}>
                 <i className="fas fa-trash-alt" />
                 Delete All
-              </button>
-              <button
-                className={`btn btn-small ${showPinnedOnly ? 'btn-primary' : 'btn-secondary'}`}
-                type="button"
-                onClick={() => setShowPinnedOnly((prev) => !prev)}
-              >
-                <i className={`fas ${showPinnedOnly ? 'fa-star' : 'fa-star-half-alt'}`} />
-                {showPinnedOnly ? 'Pinned Only' : 'All + Pinned'}
               </button>
             </div>
 
@@ -1202,6 +1251,72 @@ function App() {
         </div>
       ) : null}
 
+      {isExportPreviewOpen ? (
+        <div className="modal show" role="dialog" aria-modal="true" onClick={closeExportPreview}>
+          <div className="modal-content export-preview-modal" onClick={(event) => event.stopPropagation()}>
+            <span className="close" onClick={closeExportPreview}>
+              &times;
+            </span>
+            <h2>Review Export</h2>
+            <p className="import-preview-subtitle">
+              Select which recipes to export. All recipes are selected by default.
+            </p>
+
+            <div className="import-preview-actions">
+              <button className="btn btn-secondary btn-small" type="button" onClick={() => setAllExportCandidates(true)}>
+                Select All
+              </button>
+              <button className="btn btn-secondary btn-small" type="button" onClick={() => setAllExportCandidates(false)}>
+                Clear All
+              </button>
+            </div>
+
+            <div className="export-preview-list">
+              {exportCandidates.map((candidate) => {
+                const { recipe, previewId, selected } = candidate
+                const categories = recipe.categories || []
+
+                return (
+                  <article key={previewId} className="export-preview-item">
+                    <label className="import-preview-check">
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => toggleExportCandidate(previewId)}
+                      />
+                      <span>Include</span>
+                    </label>
+                    <div className="export-preview-content">
+                      <h3>
+                        {recipe.pinned ? <i className="fas fa-star" aria-hidden="true" /> : null}
+                        {recipe.name}
+                      </h3>
+                      {recipe.url ? <a href={recipe.url}>{recipe.url}</a> : <p>Custom recipe</p>}
+                      {categories.length > 0 ? (
+                        <div className="import-preview-categories">
+                          {categories.map((cat) => (
+                            <span key={`${previewId}-${cat}`}>{formatCategory(cat)}</span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+
+            <div className="import-preview-footer">
+              <button className="btn btn-secondary" type="button" onClick={closeExportPreview}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" type="button" onClick={confirmExportSelection}>
+                Export Selected ({selectedExportCount})
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <footer className="footer">
         <div className="container">
           <p>
@@ -1210,7 +1325,7 @@ function App() {
         </div>
       </footer>
 
-      {showInstallBtn && !isModalOpen ? (
+      {showInstallBtn && !isModalOpen && !isImportPreviewOpen && !isExportPreviewOpen ? (
         <button id="pwaInstallBtn" className="btn btn-secondary pwa-install-btn" type="button" onClick={handleInstallClick}>
           <i className="fas fa-download" />
           Install App

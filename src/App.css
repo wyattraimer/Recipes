@@ -691,6 +691,10 @@ body::before {
   max-width: 760px;
 }
 
+.export-preview-modal {
+  max-width: 760px;
+}
+
 .import-preview-subtitle {
   margin-bottom: 0.9rem;
   color: var(--ink-700);
@@ -799,6 +803,57 @@ body::before {
   display: flex;
   justify-content: flex-end;
   gap: 0.55rem;
+}
+
+.export-preview-list {
+  display: grid;
+  gap: 0.6rem;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.export-preview-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 0.65rem;
+  padding: 0.7rem;
+  border-radius: 12px;
+  border: 1px solid rgba(90, 105, 122, 0.2);
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.export-preview-content h3 {
+  font-size: 1rem;
+  margin-bottom: 0.15rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.export-preview-content h3 i {
+  color: #e4b44d;
+  font-size: 0.8rem;
+}
+
+.export-preview-content p {
+  font-size: 0.83rem;
+  color: var(--ink-500);
+  margin-bottom: 0.2rem;
+}
+
+.export-preview-content a {
+  display: inline-block;
+  font-size: 0.82rem;
+  color: #356892;
+  text-decoration: none;
+  word-break: break-all;
+  margin-bottom: 0.25rem;
+}
+
+.export-preview-content a:hover {
+  text-decoration: underline;
 }
 
 .form-group {
@@ -1083,6 +1138,10 @@ body::before {
     grid-template-columns: 1fr;
   }
 
+  .export-preview-item {
+    grid-template-columns: 1fr;
+  }
+
   .import-preview-check {
     margin-top: 0;
   }
@@ -1184,6 +1243,7 @@ body[data-theme='dark'] .footer,
 body[data-theme='dark'] .modal-content,
 body[data-theme='dark'] .sw-update-banner,
 body[data-theme='dark'] .import-preview-item,
+body[data-theme='dark'] .export-preview-item,
 body[data-theme='dark'] .no-recipes,
 body[data-theme='dark'] .meal-planner,
 body[data-theme='dark'] .meal-day-card,
@@ -1197,6 +1257,7 @@ body[data-theme='dark'] .footer,
 body[data-theme='dark'] .modal-content,
 body[data-theme='dark'] .sw-update-banner,
 body[data-theme='dark'] .import-preview-item,
+body[data-theme='dark'] .export-preview-item,
 body[data-theme='dark'] .no-recipes,
 body[data-theme='dark'] .recipe-section,
 body[data-theme='dark'] .checkbox-item,
