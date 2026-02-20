@@ -1002,12 +1002,6 @@ function App() {
                       <div className="recipe-body">
                         {recipe.image ? <img src={recipe.image} alt={recipe.name} className="recipe-image" /> : null}
 
-                        {recipe.url ? (
-                          <a href={recipe.url} className="recipe-url" target="_blank" rel="noreferrer">
-                            {recipe.url}
-                          </a>
-                        ) : null}
-
                         {recipe.notes ? <p className="recipe-notes">{recipe.notes}</p> : null}
 
                         {hasDetailedRecipe ? (

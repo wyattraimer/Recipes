@@ -369,6 +369,7 @@ body::before {
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 1.25rem;
   margin-bottom: 2.5rem;
+  align-items: start;
 }
 
 .recipe-card {
@@ -380,6 +381,7 @@ body::before {
   box-shadow: var(--shadow-soft);
   display: flex;
   flex-direction: column;
+  align-self: start;
   transition: transform var(--transition), box-shadow var(--transition), border-color var(--transition);
   animation: cardRise 340ms cubic-bezier(0.23, 1, 0.32, 1);
 }
