@@ -1012,17 +1012,7 @@ function App() {
     }
 
     window.setTimeout(() => {
-      const isCustomRecipe = selectedRecipe.type === 'custom' || (!selectedRecipe.url && selectedRecipe.ingredients)
-      if (isCustomRecipe) {
-        window.alert(`Random recipe selected: "${selectedRecipe.name}"`)
-      } else {
-        const shouldVisit = window.confirm(
-          `Random recipe selected: "${selectedRecipe.name}"\n\nWould you like to visit this recipe?`,
-        )
-        if (shouldVisit) {
-          visitRecipe(selectedRecipe.url)
-        }
-      }
+      openFocusedRecipe(selectedRecipe)
       setHighlightedId(null)
     }, 600)
   }
