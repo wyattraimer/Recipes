@@ -1,14 +1,16 @@
-const CACHE_VERSION = 'v2'
+const CACHE_VERSION = 'v4'
 const CACHE_NAME = `recipe-collector-${CACHE_VERSION}`
+const withScope = (path = '') => new URL(path, self.registration.scope).toString()
+const OFFLINE_URL = withScope('offline.html')
 const APP_SHELL = [
-  '/',
-  '/offline.html',
-  '/site.webmanifest',
-  '/favicon-32x32.png',
-  '/favicon-16x16.png',
-  '/apple-touch-icon.png',
-  '/android-chrome-192x192.png',
-  '/android-chrome-512x512.png',
+  withScope(''),
+  OFFLINE_URL,
+  withScope('site.webmanifest'),
+  withScope('favicon-32x32.png'),
+  withScope('favicon-16x16.png'),
+  withScope('apple-touch-icon.png'),
+  withScope('android-chrome-192x192.png'),
+  withScope('android-chrome-512x512.png'),
 ]
 
 self.addEventListener('install', (event) => {
@@ -41,7 +43,7 @@ self.addEventListener('fetch', (event) => {
           if (cached) {
             return cached
           }
-          return caches.match('/offline.html')
+          return caches.match(OFFLINE_URL)
         }),
     )
     return
