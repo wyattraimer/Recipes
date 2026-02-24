@@ -43,7 +43,7 @@ This repo is now configured to run on Render as a single Node web service that s
 
 ### Render service settings
 
-- Build Command: `npm install && npm run build`
+- Build Command: `npm install --include=dev && npm run build`
 - Start Command: `npm start`
 - Health Check Path: `/api/health`
 
@@ -59,3 +59,5 @@ This repo is now configured to run on Render as a single Node web service that s
 - Non-API routes fall back to `dist/index.html` for client-side routing.
 
 You can deploy with `render.yaml` from this repository, or set the same values manually in the Render dashboard.
+
+If Render shows `sh: 1: vite: not found` during build, it means dev dependencies were skipped. Use the build command above (with `--include=dev`) and redeploy.
