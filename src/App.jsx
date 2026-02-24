@@ -2379,17 +2379,17 @@ function App() {
                     <h3 className="shopping-list-subtitle">Needs Review ({visibleUnresolvedItems.length})</h3>
                     <p className="shopping-merge-legend">
                       <span>
-                        <strong>Left checkbox:</strong> mark item done in checklist
+                        <strong>Left checkbox:</strong> Cross item off checklist.
                       </span>
                       <span>
-                        <strong>Right checkbox:</strong> select item for manual merge
+                        <strong>Right checkbox:</strong> You can select multiple items and click "Merge Selected" to combine them into a single checklist entry. This is useful for manually merging similar items that couldn't be automatically combined.
                       </span>
                     </p>
                     <div className="shopping-manual-tools">
                       <input
                         type="text"
                         className="shopping-manual-input"
-                        placeholder="Optional merged label (e.g. fresh herbs mix)"
+                        placeholder="Add you own label for merged items"
                         value={shoppingManualText}
                         onChange={(event) => setShoppingManualText(event.target.value)}
                       />
