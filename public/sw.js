@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v4'
+const CACHE_VERSION = 'v5'
 const CACHE_NAME = `recipe-collector-${CACHE_VERSION}`
 const withScope = (path = '') => new URL(path, self.registration.scope).toString()
 const OFFLINE_URL = withScope('offline.html')
