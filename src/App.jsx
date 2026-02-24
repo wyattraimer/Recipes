@@ -53,7 +53,7 @@ const DEFAULT_RECIPES = [
 const STORAGE_KEY = 'recipeBookmarks'
 const THEME_KEY = 'recipeTheme'
 const MEAL_PLAN_KEY = 'recipeMealPlan'
-const API_BASE = (import.meta.env.VITE_API_BASE || `${import.meta.env.BASE_URL}api`).replace(/\/$/, '')
+const API_BASE = (import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, '')
 const EXTRACT_ENDPOINT = `${API_BASE}/recipes/extract`
 
 const MEAL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -2501,7 +2501,7 @@ function App() {
       <footer className="footer">
         <div className="container">
           <p>
-            &copy; 2026 Recipe Collector. Made with <i className="fas fa-heart" /> for food lovers.
+            &copy; 2026 Recipe Collector. Made with <i className="fas fa-heart" /> for Quinci.
           </p>
         </div>
       </footer>

@@ -1,8 +1,14 @@
 import express from 'express'
+import path from 'node:path'
+import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 import { extractRecipeFromUrl } from './recipe-extractor.js'
 
 const app = express()
-const PORT = 8787
+const PORT = Number(process.env.PORT || 8787)
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const DIST_PATH = path.resolve(__dirname, '..', 'dist')
 
 app.use(express.json({ limit: '1mb' }))
 
@@ -48,6 +54,27 @@ app.post('/api/recipes/extract', async (req, res) => {
   }
 })
 
+app.use('/api', (_req, res) => {
+  res.status(404).json({
+    ok: false,
+    error: {
+      code: 'NOT_FOUND',
+      message: 'API route not found',
+    },
+  })
+})
+
+app.use(express.static(DIST_PATH))
+
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    next()
+    return
+  }
+
+  res.sendFile(path.join(DIST_PATH, 'index.html'))
+})
+
 app.listen(PORT, () => {
-  console.log(`Recipe extractor API listening on http://localhost:${PORT}`)
+  console.log(`Recipe Collector server listening on http://0.0.0.0:${PORT}`)
 })

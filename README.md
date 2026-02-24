@@ -42,3 +42,29 @@ URL import uses an Express API (`server/index.js`) and requires a running Node p
 - Validate blocked-host protections still work in production.
 - Verify PWA install, offline page, and icon set on mobile + desktop.
 - Keep cache version bumps in `public/sw.js` when app-shell assets change.
+
+## Render Deployment (Recommended)
+
+This repo is now configured to run on Render as a single Node web service that serves both:
+
+- API routes (`/api/*`) from Express
+- Built frontend (`dist/`) from the same process
+
+### Render service settings
+
+- Build Command: `npm install && npm run build`
+- Start Command: `npm start`
+- Health Check Path: `/api/health`
+
+### Environment variables
+
+- `NODE_ENV=production`
+- `VITE_API_BASE=/api`
+
+### Notes
+
+- `server/index.js` reads `process.env.PORT` automatically (Render injects this).
+- Unknown API routes return JSON 404 and do not fall through to the SPA page.
+- Non-API routes fall back to `dist/index.html` for client-side routing.
+
+You can deploy with `render.yaml` from this repository, or set the same values manually in the Render dashboard.
