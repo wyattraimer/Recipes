@@ -53,6 +53,7 @@ const DEFAULT_RECIPES = [
 const STORAGE_KEY = 'recipeBookmarks'
 const THEME_KEY = 'recipeTheme'
 const MEAL_PLAN_KEY = 'recipeMealPlan'
+const EXTRACT_ENDPOINT = '/api/recipes/extract'
 
 const MEAL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const MEAL_SLOTS = ['Breakfast', 'Lunch', 'Dinner']
@@ -60,6 +61,7 @@ const MEAL_SLOTS = ['Breakfast', 'Lunch', 'Dinner']
 const emptyForm = {
   name: '',
   url: '',
+  image: '',
   ingredients: '',
   directions: '',
   notes: '',
@@ -89,6 +91,338 @@ function createEmptyMealPlan() {
   }, {})
 }
 
+function normalizeIngredientKey(value) {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+const UNICODE_FRACTIONS = {
+  '¼': '1/4',
+  '½': '1/2',
+  '¾': '3/4',
+  '⅐': '1/7',
+  '⅑': '1/9',
+  '⅒': '1/10',
+  '⅓': '1/3',
+  '⅔': '2/3',
+  '⅕': '1/5',
+  '⅖': '2/5',
+  '⅗': '3/5',
+  '⅘': '4/5',
+  '⅙': '1/6',
+  '⅚': '5/6',
+  '⅛': '1/8',
+  '⅜': '3/8',
+  '⅝': '5/8',
+  '⅞': '7/8',
+}
+
+const UNIT_ALIASES = {
+  tsp: { aliases: ['tsp', 'teaspoon', 'teaspoons', 't'], type: 'volume', toBase: 4.92892 },
+  tbsp: { aliases: ['tbsp', 'tablespoon', 'tablespoons'], type: 'volume', toBase: 14.7868 },
+  cup: { aliases: ['cup', 'cups', 'c'], type: 'volume', toBase: 236.588 },
+  ml: { aliases: ['ml', 'milliliter', 'milliliters'], type: 'volume', toBase: 1 },
+  l: { aliases: ['l', 'liter', 'liters'], type: 'volume', toBase: 1000 },
+  oz: { aliases: ['oz', 'ounce', 'ounces'], type: 'mass', toBase: 28.3495 },
+  lb: { aliases: ['lb', 'lbs', 'pound', 'pounds'], type: 'mass', toBase: 453.592 },
+  g: { aliases: ['g', 'gram', 'grams'], type: 'mass', toBase: 1 },
+  kg: { aliases: ['kg', 'kilogram', 'kilograms'], type: 'mass', toBase: 1000 },
+  clove: { aliases: ['clove', 'cloves'], type: 'count', toBase: 1 },
+  can: { aliases: ['can', 'cans'], type: 'count', toBase: 1 },
+  piece: { aliases: ['piece', 'pieces'], type: 'count', toBase: 1 },
+  slice: { aliases: ['slice', 'slices'], type: 'count', toBase: 1 },
+  bunch: { aliases: ['bunch', 'bunches'], type: 'count', toBase: 1 },
+  stick: { aliases: ['stick', 'sticks'], type: 'count', toBase: 1 },
+  package: { aliases: ['package', 'packages', 'pkg', 'pkgs'], type: 'count', toBase: 1 },
+}
+
+const UNIT_LOOKUP = Object.entries(UNIT_ALIASES).reduce((lookup, [unit, config]) => {
+  config.aliases.forEach((alias) => {
+    lookup[alias] = unit
+  })
+  return lookup
+}, {})
+
+const NAME_ALIASES = {
+  'all purpose flour': 'flour',
+  'all-purpose flour': 'flour',
+  scallions: 'green onion',
+  scallion: 'green onion',
+  'confectioners sugar': 'powdered sugar',
+  'powdered sugars': 'powdered sugar',
+}
+
+const NOISE_WORDS = new Set([
+  'fresh',
+  'chopped',
+  'diced',
+  'minced',
+  'large',
+  'small',
+  'medium',
+  'optional',
+  'to',
+  'taste',
+])
+
+function replaceUnicodeFractions(text) {
+  return text
+    .split('')
+    .map((char) => (UNICODE_FRACTIONS[char] ? ` ${UNICODE_FRACTIONS[char]} ` : char))
+    .join('')
+}
+
+function parseNumericToken(token) {
+  if (!token) {
+    return null
+  }
+
+  const normalized = token.replace(/,/g, '').trim()
+  if (!normalized) {
+    return null
+  }
+
+  if (/^\d+\/\d+$/.test(normalized)) {
+    const [num, den] = normalized.split('/').map(Number)
+    if (!den) {
+      return null
+    }
+    return num / den
+  }
+
+  if (/^\d+(\.\d+)?$/.test(normalized)) {
+    return Number(normalized)
+  }
+
+  return null
+}
+
+function parseLeadingQuantity(tokens) {
+  if (tokens.length === 0) {
+    return { quantity: null, consumed: 0 }
+  }
+
+  const first = parseNumericToken(tokens[0])
+  if (first == null) {
+    return { quantity: null, consumed: 0 }
+  }
+
+  let consumed = 1
+  let quantity = first
+
+  const second = parseNumericToken(tokens[1])
+  if (second != null && second < 1) {
+    quantity += second
+    consumed += 1
+  }
+
+  return { quantity, consumed }
+}
+
+function normalizeIngredientName(rawName) {
+  const base = rawName
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .split(',')[0]
+    .replace(/[^a-z\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const cleaned = base
+    .split(' ')
+    .filter((word) => !NOISE_WORDS.has(word))
+    .join(' ')
+    .trim()
+
+  if (!cleaned) {
+    return ''
+  }
+
+  const singular = cleaned
+    .split(' ')
+    .map((word) => {
+      if (word.length > 3 && word.endsWith('s') && !word.endsWith('ss')) {
+        return word.slice(0, -1)
+      }
+      return word
+    })
+    .join(' ')
+
+  return NAME_ALIASES[singular] || singular
+}
+
+function parseIngredientLine(rawText) {
+  const replaced = replaceUnicodeFractions(rawText || '')
+  const cleaned = replaced
+    .replace(/^[-*•]+\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!cleaned) {
+    return null
+  }
+
+  const tokens = cleaned.split(' ')
+  const { quantity, consumed } = parseLeadingQuantity(tokens)
+
+  let tokenIndex = consumed
+  let unitKey = ''
+  let unitType = ''
+  let toBase = 1
+
+  const rawUnit = (tokens[tokenIndex] || '').toLowerCase().replace(/[.,]/g, '')
+  if (UNIT_LOOKUP[rawUnit]) {
+    unitKey = UNIT_LOOKUP[rawUnit]
+    unitType = UNIT_ALIASES[unitKey].type
+    toBase = UNIT_ALIASES[unitKey].toBase
+    tokenIndex += 1
+  }
+
+  const remaining = tokens.slice(tokenIndex).join(' ').trim()
+  const normalizedName = normalizeIngredientName(remaining)
+
+  if (!normalizedName) {
+    return {
+      raw: cleaned,
+      convertible: false,
+    }
+  }
+
+  if (quantity == null || !unitType) {
+    return {
+      raw: cleaned,
+      name: normalizedName,
+      convertible: false,
+    }
+  }
+
+  return {
+    raw: cleaned,
+    name: normalizedName,
+    quantity,
+    unitKey,
+    unitType,
+    toBase,
+    convertible: true,
+  }
+}
+
+function toDisplayName(name) {
+  return name
+    .split(' ')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+function roundQuantity(value) {
+  const rounded = Math.round(value * 100) / 100
+  if (Number.isInteger(rounded)) {
+    return String(rounded)
+  }
+  return rounded.toFixed(2).replace(/0$/, '').replace(/\.0$/, '')
+}
+
+function formatTotalUnit(baseAmount, unitType, preferredSystem) {
+  if (unitType === 'count') {
+    return { quantity: baseAmount, unit: '' }
+  }
+
+  if (unitType === 'volume') {
+    if (preferredSystem === 'metric') {
+      if (baseAmount >= 1000) {
+        return { quantity: baseAmount / 1000, unit: 'l' }
+      }
+      return { quantity: baseAmount, unit: 'ml' }
+    }
+
+    if (baseAmount >= UNIT_ALIASES.cup.toBase) {
+      return { quantity: baseAmount / UNIT_ALIASES.cup.toBase, unit: 'cup' }
+    }
+    if (baseAmount >= UNIT_ALIASES.tbsp.toBase) {
+      return { quantity: baseAmount / UNIT_ALIASES.tbsp.toBase, unit: 'tbsp' }
+    }
+    return { quantity: baseAmount / UNIT_ALIASES.tsp.toBase, unit: 'tsp' }
+  }
+
+  if (preferredSystem === 'metric') {
+    if (baseAmount >= 1000) {
+      return { quantity: baseAmount / 1000, unit: 'kg' }
+    }
+    return { quantity: baseAmount, unit: 'g' }
+  }
+
+  if (baseAmount >= UNIT_ALIASES.lb.toBase) {
+    return { quantity: baseAmount / UNIT_ALIASES.lb.toBase, unit: 'lb' }
+  }
+  return { quantity: baseAmount / UNIT_ALIASES.oz.toBase, unit: 'oz' }
+}
+
+function buildShoppingAggregation(candidates, preferredSystem) {
+  const totalsMap = new Map()
+  const unresolvedMap = new Map()
+
+  candidates
+    .filter((candidate) => candidate.selected)
+    .forEach((candidate) => {
+      const ingredients = Array.isArray(candidate.recipe.ingredients) ? candidate.recipe.ingredients : []
+      ingredients.forEach((rawIngredient) => {
+        const parsed = parseIngredientLine(rawIngredient)
+        if (!parsed) {
+          return
+        }
+
+        if (!parsed.convertible) {
+          const unresolvedKey = normalizeIngredientKey(parsed.raw)
+          const unresolved = unresolvedMap.get(unresolvedKey) || {
+            key: `unresolved:${unresolvedKey}`,
+            text: parsed.raw,
+            count: 0,
+          }
+          unresolved.count += 1
+          unresolvedMap.set(unresolvedKey, unresolved)
+          return
+        }
+
+        const totalKey =
+          parsed.unitType === 'count'
+            ? `${parsed.unitType}:${parsed.unitKey}:${parsed.name}`
+            : `${parsed.unitType}:${parsed.name}`
+
+        const existing = totalsMap.get(totalKey) || {
+          key: `total:${totalKey}`,
+          name: parsed.name,
+          unitType: parsed.unitType,
+          unitKey: parsed.unitKey,
+          baseAmount: 0,
+          sourceCount: 0,
+        }
+
+        existing.baseAmount += parsed.quantity * parsed.toBase
+        existing.sourceCount += 1
+        totalsMap.set(totalKey, existing)
+      })
+    })
+
+  const totals = Array.from(totalsMap.values())
+    .map((entry) => {
+      if (entry.unitType === 'count') {
+        return {
+          ...entry,
+          amountLabel: `${roundQuantity(entry.baseAmount)} ${entry.unitKey} ${toDisplayName(entry.name)}`,
+        }
+      }
+
+      const display = formatTotalUnit(entry.baseAmount, entry.unitType, preferredSystem)
+      return {
+        ...entry,
+        amountLabel: `${roundQuantity(display.quantity)} ${display.unit} ${toDisplayName(entry.name)}`,
+      }
+    })
+    .sort((a, b) => a.amountLabel.localeCompare(b.amountLabel))
+
+  const unresolved = Array.from(unresolvedMap.values()).sort((a, b) => a.text.localeCompare(b.text))
+  return { totals, unresolved }
+}
+
 function App() {
   const [recipes, setRecipes] = useState(() => {
     try {
@@ -104,6 +438,7 @@ function App() {
   const [showPinnedOnly, setShowPinnedOnly] = useState(false)
   const [activeView, setActiveView] = useState('recipes')
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [focusedRecipe, setFocusedRecipe] = useState(null)
   const [currentEditingId, setCurrentEditingId] = useState(null)
   const [currentRecipeType, setCurrentRecipeType] = useState('url')
   const [form, setForm] = useState(emptyForm)
@@ -121,6 +456,18 @@ function App() {
   const [importSummary, setImportSummary] = useState(null)
   const [isExportPreviewOpen, setIsExportPreviewOpen] = useState(false)
   const [exportCandidates, setExportCandidates] = useState([])
+  const [isShoppingListOpen, setIsShoppingListOpen] = useState(false)
+  const [shoppingCandidates, setShoppingCandidates] = useState([])
+  const [shoppingChecklist, setShoppingChecklist] = useState({})
+  const [shoppingUnitSystem, setShoppingUnitSystem] = useState('us')
+  const [shoppingMergeSelection, setShoppingMergeSelection] = useState({})
+  const [shoppingManualGroups, setShoppingManualGroups] = useState([])
+  const [shoppingManualText, setShoppingManualText] = useState('')
+  const [shoppingManualEditingKey, setShoppingManualEditingKey] = useState('')
+  const [shoppingManualEditDraft, setShoppingManualEditDraft] = useState('')
+  const [isExtracting, setIsExtracting] = useState(false)
+  const [extractWarnings, setExtractWarnings] = useState([])
+  const [extractCandidate, setExtractCandidate] = useState(null)
   const [mealPlan, setMealPlan] = useState(() => {
     try {
       const savedPlan = localStorage.getItem(MEAL_PLAN_KEY)
@@ -181,6 +528,34 @@ function App() {
   const selectedExportCount = useMemo(
     () => exportCandidates.filter((candidate) => candidate.selected).length,
     [exportCandidates],
+  )
+
+  const selectedShoppingCount = useMemo(
+    () => shoppingCandidates.filter((candidate) => candidate.selected).length,
+    [shoppingCandidates],
+  )
+
+  const shoppingAggregation = useMemo(
+    () => buildShoppingAggregation(shoppingCandidates, shoppingUnitSystem),
+    [shoppingCandidates, shoppingUnitSystem],
+  )
+
+  const combinedShoppingItems = shoppingAggregation.totals
+  const unresolvedShoppingItems = shoppingAggregation.unresolved
+  const unresolvedByKey = useMemo(
+    () => Object.fromEntries(unresolvedShoppingItems.map((item) => [item.key, item])),
+    [unresolvedShoppingItems],
+  )
+  const hiddenUnresolvedKeys = useMemo(() => {
+    const hidden = new Set()
+    shoppingManualGroups.forEach((group) => {
+      group.sourceKeys.forEach((key) => hidden.add(key))
+    })
+    return hidden
+  }, [shoppingManualGroups])
+  const visibleUnresolvedItems = useMemo(
+    () => unresolvedShoppingItems.filter((item) => !hiddenUnresolvedKeys.has(item.key)),
+    [unresolvedShoppingItems, hiddenUnresolvedKeys],
   )
 
   useEffect(() => {
@@ -247,12 +622,54 @@ function App() {
         setIsModalOpen(false)
         setIsImportPreviewOpen(false)
         setIsExportPreviewOpen(false)
+        setIsShoppingListOpen(false)
+        setFocusedRecipe(null)
       }
     }
 
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [])
+
+  useEffect(() => {
+    setShoppingChecklist((prev) => {
+      const validKeys = new Set([
+        ...combinedShoppingItems.map((item) => item.key),
+        ...visibleUnresolvedItems.map((item) => item.key),
+        ...shoppingManualGroups.map((group) => group.key),
+      ])
+      const next = {}
+      Object.entries(prev).forEach(([key, checked]) => {
+        if (validKeys.has(key)) {
+          next[key] = checked
+        }
+      })
+      return next
+    })
+  }, [combinedShoppingItems, visibleUnresolvedItems, shoppingManualGroups])
+
+  useEffect(() => {
+    const validKeys = new Set(unresolvedShoppingItems.map((item) => item.key))
+
+    setShoppingMergeSelection((prev) => {
+      const next = {}
+      Object.entries(prev).forEach(([key, selected]) => {
+        if (validKeys.has(key)) {
+          next[key] = selected
+        }
+      })
+      return next
+    })
+
+    setShoppingManualGroups((prev) =>
+      prev
+        .map((group) => ({
+          ...group,
+          sourceKeys: group.sourceKeys.filter((key) => validKeys.has(key)),
+        }))
+        .filter((group) => group.sourceKeys.length > 0),
+    )
+  }, [unresolvedShoppingItems])
 
   function showMessage(text, type = 'info') {
     const id = Date.now() + Math.random()
@@ -278,6 +695,9 @@ function App() {
   }
 
   function openModal(recipe = null) {
+    setExtractWarnings([])
+    setExtractCandidate(null)
+
     if (!recipe) {
       setCurrentEditingId(null)
       setCurrentRecipeType('url')
@@ -292,6 +712,7 @@ function App() {
     setForm({
       name: recipe.name || '',
       url: recipe.url || '',
+      image: recipe.image || '',
       ingredients: Array.isArray(recipe.ingredients) ? recipe.ingredients.join('\n') : '',
       directions: Array.isArray(recipe.directions) ? recipe.directions.join('\n') : '',
       notes: recipe.notes || '',
@@ -303,6 +724,17 @@ function App() {
   function closeModal() {
     setIsModalOpen(false)
     setCurrentEditingId(null)
+    setIsExtracting(false)
+    setExtractWarnings([])
+    setExtractCandidate(null)
+  }
+
+  function openFocusedRecipe(recipe) {
+    setFocusedRecipe(recipe)
+  }
+
+  function closeFocusedRecipe() {
+    setFocusedRecipe(null)
   }
 
   function toggleCategory(category) {
@@ -343,9 +775,21 @@ function App() {
         return
       }
 
+      const extractedIngredients = form.ingredients
+        .split('\n')
+        .map((value) => value.trim())
+        .filter(Boolean)
+      const extractedDirections = form.directions
+        .split('\n')
+        .map((value) => value.trim())
+        .filter(Boolean)
+
       recipeData = {
         name: form.name.trim(),
         url: form.url.trim(),
+        image: form.image.trim(),
+        ingredients: extractedIngredients,
+        directions: extractedDirections,
         categories: form.categories,
         notes: form.notes.trim(),
         type: 'url',
@@ -374,6 +818,7 @@ function App() {
         name: form.name.trim(),
         ingredients,
         directions,
+        image: form.image.trim(),
         categories: form.categories,
         notes: form.notes.trim(),
         type: 'custom',
@@ -470,6 +915,82 @@ function App() {
     }
   }
 
+  async function handleExtractFromUrl() {
+    const inputUrl = form.url.trim()
+    if (!inputUrl) {
+      showMessage('Enter a recipe URL first.', 'error')
+      return
+    }
+
+    try {
+      setIsExtracting(true)
+      setExtractWarnings([])
+      setExtractCandidate(null)
+
+      const response = await fetch(EXTRACT_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: inputUrl }),
+      })
+
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || !payload?.ok) {
+        const message = payload?.error?.message || 'Could not extract recipe details from this URL'
+        throw new Error(message)
+      }
+
+      const extracted = payload.data
+      const warnings = payload.meta?.warnings || []
+
+      setExtractWarnings(warnings)
+      setExtractCandidate({
+        data: extracted,
+        meta: payload.meta || null,
+        warnings,
+      })
+      showMessage('Recipe details extracted. Review and apply.', 'success')
+    } catch (error) {
+      showMessage(error.message || 'Extraction failed', 'error')
+      setExtractWarnings([])
+      setExtractCandidate(null)
+    } finally {
+      setIsExtracting(false)
+    }
+  }
+
+  function applyExtractCandidate() {
+    if (!extractCandidate?.data) {
+      return
+    }
+
+    const extracted = extractCandidate.data
+    setForm((prev) => ({
+      ...prev,
+      name: extracted.name || prev.name,
+      url: extracted.url || prev.url,
+      image: extracted.image || prev.image,
+      ingredients: (extracted.ingredients || []).join('\n'),
+      directions: (extracted.directions || []).join('\n'),
+      notes: extracted.notes || prev.notes,
+      categories:
+        Array.isArray(extracted.categories) && extracted.categories.length > 0
+          ? extracted.categories
+          : prev.categories,
+    }))
+
+    setExtractCandidate(null)
+    setExtractWarnings([])
+    showMessage('Extracted fields applied to the form.', 'success')
+  }
+
+  function discardExtractCandidate() {
+    setExtractCandidate(null)
+    setExtractWarnings([])
+    showMessage('Extracted preview discarded.', 'info')
+  }
+
   function randomizeRecipe() {
     if (recipes.length === 0) {
       window.alert('No recipes to randomize! Add some recipes first.')
@@ -491,17 +1012,7 @@ function App() {
     }
 
     window.setTimeout(() => {
-      const isCustomRecipe = selectedRecipe.type === 'custom' || (!selectedRecipe.url && selectedRecipe.ingredients)
-      if (isCustomRecipe) {
-        window.alert(`Random recipe selected: "${selectedRecipe.name}"`)
-      } else {
-        const shouldVisit = window.confirm(
-          `Random recipe selected: "${selectedRecipe.name}"\n\nWould you like to visit this recipe?`,
-        )
-        if (shouldVisit) {
-          visitRecipe(selectedRecipe.url)
-        }
-      }
+      openFocusedRecipe(selectedRecipe)
       setHighlightedId(null)
     }, 600)
   }
@@ -566,6 +1077,217 @@ function App() {
       `Exported ${selectedRecipes.length} recipe${selectedRecipes.length !== 1 ? 's' : ''} successfully!`,
       'success',
     )
+  }
+
+  function openShoppingListBuilder() {
+    const candidates = recipes
+      .filter((recipe) => Array.isArray(recipe.ingredients) && recipe.ingredients.length > 0)
+      .map((recipe) => ({
+        previewId: `shop-${recipe.id}`,
+        recipe,
+        selected: true,
+      }))
+
+    if (candidates.length === 0) {
+      showMessage('Add recipes with ingredients to build a shopping list.', 'info')
+      return
+    }
+
+    setShoppingCandidates(candidates)
+    setShoppingChecklist({})
+    setShoppingMergeSelection({})
+    setShoppingManualGroups([])
+    setShoppingManualText('')
+    setIsShoppingListOpen(true)
+  }
+
+  function closeShoppingListBuilder() {
+    setIsShoppingListOpen(false)
+    setShoppingCandidates([])
+    setShoppingChecklist({})
+    setShoppingMergeSelection({})
+    setShoppingManualGroups([])
+    setShoppingManualText('')
+    setShoppingManualEditingKey('')
+    setShoppingManualEditDraft('')
+  }
+
+  function toggleShoppingCandidate(previewId) {
+    setShoppingCandidates((prev) =>
+      prev.map((candidate) =>
+        candidate.previewId === previewId ? { ...candidate, selected: !candidate.selected } : candidate,
+      ),
+    )
+  }
+
+  function setAllShoppingCandidates(selected) {
+    setShoppingCandidates((prev) => prev.map((candidate) => ({ ...candidate, selected })))
+  }
+
+  function toggleShoppingItemChecked(itemKey) {
+    setShoppingChecklist((prev) => ({
+      ...prev,
+      [itemKey]: !prev[itemKey],
+    }))
+  }
+
+  function clearShoppingChecklist() {
+    setShoppingChecklist({})
+  }
+
+  function toggleShoppingMergeSelection(itemKey) {
+    if (hiddenUnresolvedKeys.has(itemKey)) {
+      return
+    }
+    setShoppingMergeSelection((prev) => ({
+      ...prev,
+      [itemKey]: !prev[itemKey],
+    }))
+  }
+
+  function createManualMergeGroup() {
+    const selectedKeys = visibleUnresolvedItems
+      .map((item) => item.key)
+      .filter((key) => Boolean(shoppingMergeSelection[key]))
+
+    if (selectedKeys.length < 2) {
+      showMessage('Select at least two Needs Review items to merge.', 'error')
+      return
+    }
+
+    const defaultLabel = selectedKeys
+      .map((key) => unresolvedByKey[key]?.text)
+      .filter(Boolean)
+      .join(' + ')
+
+    const normalizedCustom = shoppingManualText.trim()
+    const label = normalizedCustom || defaultLabel
+
+    if (!label) {
+      showMessage('Please provide a label for the merged item.', 'error')
+      return
+    }
+
+    const group = {
+      key: `manual:${Date.now()}:${Math.random().toString(16).slice(2)}`,
+      text: label,
+      sourceKeys: selectedKeys,
+      count: selectedKeys.reduce((sum, key) => sum + (unresolvedByKey[key]?.count || 1), 0),
+    }
+
+    setShoppingManualGroups((prev) => [...prev, group])
+    setShoppingMergeSelection((prev) => {
+      const next = { ...prev }
+      selectedKeys.forEach((key) => {
+        delete next[key]
+      })
+      return next
+    })
+    setShoppingManualText('')
+    showMessage('Merged selected items into a manual shopping entry.', 'success')
+  }
+
+  function splitManualMergeGroup(groupKey) {
+    setShoppingManualGroups((prev) => prev.filter((group) => group.key !== groupKey))
+    setShoppingChecklist((prev) => {
+      const next = { ...prev }
+      delete next[groupKey]
+      return next
+    })
+    if (shoppingManualEditingKey === groupKey) {
+      setShoppingManualEditingKey('')
+      setShoppingManualEditDraft('')
+    }
+    showMessage('Manual merged item was split back into original entries.', 'info')
+  }
+
+  function startEditingManualMergeGroup(group) {
+    setShoppingManualEditingKey(group.key)
+    setShoppingManualEditDraft(group.text)
+  }
+
+  function cancelEditingManualMergeGroup() {
+    setShoppingManualEditingKey('')
+    setShoppingManualEditDraft('')
+  }
+
+  function saveEditingManualMergeGroup(groupKey) {
+    setShoppingManualGroups((prev) =>
+      prev.map((group) => {
+        if (group.key !== groupKey) {
+          return group
+        }
+
+        const normalized = shoppingManualEditDraft.trim()
+        if (normalized) {
+          return { ...group, text: normalized }
+        }
+
+        const fallback =
+          group.sourceKeys
+            .map((key) => unresolvedByKey[key]?.text)
+            .filter(Boolean)
+            .join(' + ') || 'Merged item'
+
+        return { ...group, text: fallback }
+      }),
+    )
+
+    setShoppingManualEditingKey('')
+    setShoppingManualEditDraft('')
+  }
+
+  function exportShoppingListText() {
+    const selectedRecipes = shoppingCandidates.filter((candidate) => candidate.selected)
+    if (selectedRecipes.length === 0) {
+      showMessage('Select at least one recipe before exporting a shopping list.', 'error')
+      return
+    }
+
+    const lines = []
+    lines.push('Recipe Collector Shopping List')
+    lines.push(`Generated: ${new Date().toLocaleString()}`)
+    lines.push('')
+    lines.push('Selected Recipes:')
+    selectedRecipes.forEach((candidate) => lines.push(`- ${candidate.recipe.name}`))
+    lines.push('')
+    lines.push('Combined Totals:')
+
+    combinedShoppingItems.forEach((item) => {
+      const mark = shoppingChecklist[item.key] ? '[x]' : '[ ]'
+      lines.push(`${mark} ${item.amountLabel}`)
+    })
+
+    if (visibleUnresolvedItems.length > 0) {
+      lines.push('')
+      lines.push('Needs Review (not safely totaled):')
+      visibleUnresolvedItems.forEach((item) => {
+        const mark = shoppingChecklist[item.key] ? '[x]' : '[ ]'
+        lines.push(`${mark} ${item.text}${item.count > 1 ? ` (${item.count} recipes)` : ''}`)
+      })
+    }
+
+    if (shoppingManualGroups.length > 0) {
+      lines.push('')
+      lines.push('Manual Merge Items:')
+      shoppingManualGroups.forEach((group) => {
+        const mark = shoppingChecklist[group.key] ? '[x]' : '[ ]'
+        lines.push(`${mark} ${group.text}${group.count > 1 ? ` (${group.count} lines)` : ''}`)
+      })
+    }
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
+    const downloadUrl = URL.createObjectURL(blob)
+    const fileName = `shopping-list-${new Date().toISOString().split('T')[0]}.txt`
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(downloadUrl)
+
+    showMessage('Shopping list exported.', 'success')
   }
 
   function filterImportedRecipes(newRecipes) {
@@ -765,26 +1487,74 @@ function App() {
       <main className="main">
         <div className="container">
           <section className="controls">
-            <div className="controls-actions">
-              <div className="view-toggle-group" role="tablist" aria-label="App view">
-                <button
-                  className={`btn btn-small ${activeView === 'recipes' ? 'btn-primary' : 'btn-secondary'}`}
-                  type="button"
-                  onClick={() => setActiveView('recipes')}
-                >
-                  <i className="fas fa-th-large" />
-                  Recipes
-                </button>
-                <button
-                  className={`btn btn-small ${activeView === 'planner' ? 'btn-primary' : 'btn-secondary'}`}
-                  type="button"
-                  onClick={() => setActiveView('planner')}
-                >
-                  <i className="fas fa-calendar-alt" />
-                  Meal Planner
-                </button>
+            <div className="controls-label">Browse</div>
+            <div className="controls-context">
+              <div className="controls-context-left">
+                <div className="view-toggle-group" role="tablist" aria-label="App view">
+                  <button
+                    className={`btn btn-small ${activeView === 'recipes' ? 'btn-primary' : 'btn-secondary'}`}
+                    type="button"
+                    onClick={() => setActiveView('recipes')}
+                  >
+                    <i className="fas fa-th-large" />
+                    Recipes
+                  </button>
+                  <button
+                    className={`btn btn-small ${activeView === 'planner' ? 'btn-primary' : 'btn-secondary'}`}
+                    type="button"
+                    onClick={() => setActiveView('planner')}
+                  >
+                    <i className="fas fa-calendar-alt" />
+                    Meal Planner
+                  </button>
+                </div>
+
+                <div className="search-box">
+                  <input
+                    type="text"
+                    placeholder="Search recipes..."
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                  />
+                  <i className="fas fa-search" />
+                </div>
+
+                <div className="category-filter">
+                  <select
+                    className="category-select"
+                    value={categoryFilter}
+                    onChange={(event) => setCategoryFilter(event.target.value)}
+                  >
+                    <option value="">All Categories</option>
+                    {CATEGORY_OPTIONS.map((category) => (
+                      <option key={category} value={category}>
+                        {formatCategory(category)}
+                      </option>
+                    ))}
+                  </select>
+                  <i className="fas fa-filter" />
+                </div>
               </div>
 
+              <div className="controls-context-right">
+                <div className="results-count" aria-live="polite">
+                  Showing {filteredRecipes.length} of {recipes.length}
+                </div>
+
+                <label className="theme-switch" aria-label="Toggle dark mode">
+                  <input type="checkbox" checked={theme === 'dark'} onChange={toggleTheme} />
+                  <span className="theme-switch-track">
+                    <span className="theme-switch-knob">
+                      <i className={`fas ${theme === 'dark' ? 'fa-moon' : 'fa-sun'}`} />
+                    </span>
+                  </span>
+                  <span className="theme-switch-label">{theme === 'dark' ? 'Dark' : 'Light'}</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="controls-label">Actions</div>
+            <div className="controls-primary-actions">
               <button className="btn btn-primary" type="button" onClick={() => openModal()}>
                 <i className="fas fa-plus" />
                 Add Recipe
@@ -800,6 +1570,14 @@ function App() {
               >
                 <i className={`fas ${showPinnedOnly ? 'fa-star' : 'fa-star-half-alt'}`} />
                 {showPinnedOnly ? 'Pinned Only' : 'All + Pinned'}
+              </button>
+            </div>
+
+            <div className="controls-label">Data & Tools</div>
+            <div className="controls-utility-actions">
+              <button className="btn btn-secondary" type="button" onClick={openShoppingListBuilder}>
+                <i className="fas fa-cart-shopping" />
+                Shopping List
               </button>
               <button className="btn btn-secondary" type="button" onClick={exportRecipes}>
                 <i className="fas fa-download" />
@@ -820,52 +1598,13 @@ function App() {
                 style={{ display: 'none' }}
                 onChange={handleImportFile}
               />
-              <button className="btn btn-danger" type="button" onClick={deleteAllRecipes}>
-                <i className="fas fa-trash-alt" />
-                Delete All
-              </button>
-            </div>
 
-            <div className="controls-filters">
-              <div className="search-box">
-                <input
-                  type="text"
-                  placeholder="Search recipes..."
-                  value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
-                />
-                <i className="fas fa-search" />
+              <div className="controls-danger-zone">
+                <button className="btn btn-danger" type="button" onClick={deleteAllRecipes}>
+                  <i className="fas fa-trash-alt" />
+                  Delete All
+                </button>
               </div>
-
-              <div className="category-filter">
-                <select
-                  className="category-select"
-                  value={categoryFilter}
-                  onChange={(event) => setCategoryFilter(event.target.value)}
-                >
-                  <option value="">All Categories</option>
-                  {CATEGORY_OPTIONS.map((category) => (
-                    <option key={category} value={category}>
-                      {formatCategory(category)}
-                    </option>
-                  ))}
-                </select>
-                <i className="fas fa-filter" />
-              </div>
-
-              <div className="results-count" aria-live="polite">
-                Showing {filteredRecipes.length} of {recipes.length}
-              </div>
-
-              <label className="theme-switch" aria-label="Toggle dark mode">
-                <input type="checkbox" checked={theme === 'dark'} onChange={toggleTheme} />
-                <span className="theme-switch-track">
-                  <span className="theme-switch-knob">
-                    <i className={`fas ${theme === 'dark' ? 'fa-moon' : 'fa-sun'}`} />
-                  </span>
-                </span>
-                <span className="theme-switch-label">{theme === 'dark' ? 'Dark' : 'Light'}</span>
-              </label>
             </div>
           </section>
 
@@ -874,14 +1613,24 @@ function App() {
               <section className="recipe-grid">
                 {filteredRecipes.map((recipe) => {
                   const categories = recipe.categories || (recipe.category ? [recipe.category] : [])
-                  const isCustomRecipe =
-                    recipe.type === 'custom' || (!recipe.url && Array.isArray(recipe.ingredients))
+                  const hasIngredients = Array.isArray(recipe.ingredients) && recipe.ingredients.length > 0
+                  const hasDirections = Array.isArray(recipe.directions) && recipe.directions.length > 0
+                  const hasDetailedRecipe = hasIngredients || hasDirections
 
                   return (
                     <article
                       key={recipe.id}
-                      className={`recipe-card ${highlightedId === recipe.id ? 'highlighted' : ''}`}
+                      className={`recipe-card recipe-card-clickable ${highlightedId === recipe.id ? 'highlighted' : ''}`}
                       data-recipe-id={recipe.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openFocusedRecipe(recipe)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          openFocusedRecipe(recipe)
+                        }
+                      }}
                     >
                       <div className="recipe-header">
                         <h3 className="recipe-title">{recipe.name}</h3>
@@ -899,49 +1648,52 @@ function App() {
                       </div>
 
                       <div className="recipe-body">
-                        {!isCustomRecipe && recipe.url ? (
-                          <a href={recipe.url} className="recipe-url" target="_blank" rel="noreferrer">
-                            {recipe.url}
-                          </a>
-                        ) : null}
+                        {recipe.image ? <img src={recipe.image} alt={recipe.name} className="recipe-image" /> : null}
 
                         {recipe.notes ? <p className="recipe-notes">{recipe.notes}</p> : null}
 
-                        {isCustomRecipe ? (
+                        {hasDetailedRecipe ? (
                           <>
-                            <div className="recipe-section">
-                              <h4 className="recipe-section-title">
-                                <i className="fas fa-list" />
-                                Ingredients
-                              </h4>
-                              <ul className="recipe-list">
-                                {(recipe.ingredients || []).map((item) => (
-                                  <li key={item}>{item}</li>
-                                ))}
-                              </ul>
-                            </div>
+                            {hasIngredients ? (
+                              <div className="recipe-section">
+                                <h4 className="recipe-section-title">
+                                  <i className="fas fa-list" />
+                                  Ingredients
+                                </h4>
+                                <ul className="recipe-list">
+                                  {(recipe.ingredients || []).map((item) => (
+                                    <li key={item}>{item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ) : null}
 
-                            <div className="recipe-section">
-                              <h4 className="recipe-section-title">
-                                <i className="fas fa-directions" />
-                                Directions
-                              </h4>
-                              <ol className="recipe-list">
-                                {(recipe.directions || []).map((step) => (
-                                  <li key={step}>{step}</li>
-                                ))}
-                              </ol>
-                            </div>
+                            {hasDirections ? (
+                              <div className="recipe-section">
+                                <h4 className="recipe-section-title">
+                                  <i className="fas fa-directions" />
+                                  Directions
+                                </h4>
+                                <ol className="recipe-list">
+                                  {(recipe.directions || []).map((step) => (
+                                    <li key={step}>{step}</li>
+                                  ))}
+                                </ol>
+                              </div>
+                            ) : null}
                           </>
                         ) : null}
 
                         <div className="recipe-actions">
-                          {!isCustomRecipe && recipe.url ? (
+                          {recipe.url ? (
                             <>
                               <button
                                 className="btn btn-small btn-visit"
                                 type="button"
-                                onClick={() => visitRecipe(recipe.url)}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  visitRecipe(recipe.url)
+                                }}
                               >
                                 <i className="fas fa-external-link-alt" />
                                 Visit
@@ -949,7 +1701,10 @@ function App() {
                               <button
                                 className="btn btn-small btn-copy"
                                 type="button"
-                                onClick={() => copyRecipeUrl(recipe.url)}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  copyRecipeUrl(recipe.url)
+                                }}
                               >
                                 <i className="fas fa-copy" />
                                 Copy URL
@@ -959,19 +1714,32 @@ function App() {
                           <button
                             className={`btn btn-small ${recipe.pinned ? 'btn-pin-active' : 'btn-pin'}`}
                             type="button"
-                            onClick={() => togglePinnedRecipe(recipe.id)}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              togglePinnedRecipe(recipe.id)
+                            }}
                           >
                             <i className={`fas ${recipe.pinned ? 'fa-star' : 'fa-star-half-alt'}`} />
                             {recipe.pinned ? 'Pinned' : 'Pin'}
                           </button>
-                          <button className="btn btn-small btn-primary" type="button" onClick={() => openModal(recipe)}>
+                          <button
+                            className="btn btn-small btn-primary"
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              openModal(recipe)
+                            }}
+                          >
                             <i className="fas fa-edit" />
                             Edit
                           </button>
                           <button
                             className="btn btn-small btn-danger"
                             type="button"
-                            onClick={() => handleDeleteRecipe(recipe.id)}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleDeleteRecipe(recipe.id)
+                            }}
                           >
                             <i className="fas fa-trash" />
                             Delete
@@ -1046,6 +1814,94 @@ function App() {
         </div>
       </main>
 
+      {focusedRecipe ? (
+        <div className="focused-recipe-overlay" role="dialog" aria-modal="true" onClick={closeFocusedRecipe}>
+          <article className="focused-recipe-panel" onClick={(event) => event.stopPropagation()}>
+            <button className="focused-recipe-close" type="button" onClick={closeFocusedRecipe}>
+              <i className="fas fa-times" />
+              Close
+            </button>
+
+            <header className="focused-recipe-header">
+              <h2>{focusedRecipe.name}</h2>
+              <div className="recipe-categories">
+                {(focusedRecipe.categories || (focusedRecipe.category ? [focusedRecipe.category] : [])).map((cat) => {
+                  const info = CATEGORIES[cat] || CATEGORIES.other
+                  return (
+                    <span key={`focused-${focusedRecipe.id}-${cat}`} className="recipe-category" style={{ backgroundColor: info.color }}>
+                      <i className={`fas ${info.icon}`} />
+                      {cat}
+                    </span>
+                  )
+                })}
+              </div>
+            </header>
+
+            {focusedRecipe.image ? (
+              <div className="focused-recipe-image-wrap">
+                <img src={focusedRecipe.image} alt={focusedRecipe.name} className="focused-recipe-image" />
+              </div>
+            ) : null}
+
+            {focusedRecipe.notes ? <p className="recipe-notes">{focusedRecipe.notes}</p> : null}
+
+            {Array.isArray(focusedRecipe.ingredients) && focusedRecipe.ingredients.length > 0 ? (
+              <section className="focused-recipe-section">
+                <h3 className="recipe-section-title">
+                  <i className="fas fa-list" />
+                  Ingredients
+                </h3>
+                <ul className="recipe-list">
+                  {focusedRecipe.ingredients.map((item) => (
+                    <li key={`focused-ing-${item}`}>{item}</li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
+            {Array.isArray(focusedRecipe.directions) && focusedRecipe.directions.length > 0 ? (
+              <section className="focused-recipe-section">
+                <h3 className="recipe-section-title">
+                  <i className="fas fa-directions" />
+                  Directions
+                </h3>
+                <ol className="recipe-list">
+                  {focusedRecipe.directions.map((step) => (
+                    <li key={`focused-step-${step}`}>{step}</li>
+                  ))}
+                </ol>
+              </section>
+            ) : null}
+
+            <div className="focused-recipe-actions">
+              {focusedRecipe.url ? (
+                <>
+                  <button className="btn btn-visit" type="button" onClick={() => visitRecipe(focusedRecipe.url)}>
+                    <i className="fas fa-external-link-alt" />
+                    Visit
+                  </button>
+                  <button className="btn btn-copy" type="button" onClick={() => copyRecipeUrl(focusedRecipe.url)}>
+                    <i className="fas fa-copy" />
+                    Copy URL
+                  </button>
+                </>
+              ) : null}
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={() => {
+                  openModal(focusedRecipe)
+                  closeFocusedRecipe()
+                }}
+              >
+                <i className="fas fa-edit" />
+                Edit Recipe
+              </button>
+            </div>
+          </article>
+        </div>
+      ) : null}
+
       {isModalOpen ? (
         <div className="modal show" role="dialog" aria-modal="true" onClick={closeModal}>
           <div className="modal-content" onClick={(event) => event.stopPropagation()}>
@@ -1089,16 +1945,103 @@ function App() {
               </div>
 
               {currentRecipeType === 'url' ? (
-                <div className="form-group">
-                  <label htmlFor="recipeUrl">Recipe URL</label>
-                  <input
-                    id="recipeUrl"
-                    type="url"
-                    required
-                    value={form.url}
-                    onChange={(event) => setForm((prev) => ({ ...prev, url: event.target.value }))}
-                  />
-                </div>
+                <>
+                  <div className="form-group">
+                    <label htmlFor="recipeUrl">Recipe URL</label>
+                    <input
+                      id="recipeUrl"
+                      type="url"
+                      required
+                      value={form.url}
+                      onChange={(event) => setForm((prev) => ({ ...prev, url: event.target.value }))}
+                    />
+                  </div>
+
+                  <div className="extract-actions">
+                    <button
+                      className="btn btn-secondary"
+                      type="button"
+                      onClick={handleExtractFromUrl}
+                      disabled={isExtracting}
+                    >
+                      <i className={`fas ${isExtracting ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'}`} />
+                      {isExtracting ? 'Extracting...' : 'Extract Details from URL'}
+                    </button>
+                  </div>
+
+                  {extractCandidate ? (
+                    <div className="extract-preview-card">
+                      <div className="extract-preview-header">
+                        <strong>{extractCandidate.data.name || 'Unnamed recipe'}</strong>
+                        {extractCandidate.meta ? (
+                          <span className="extract-meta">
+                            Source: {extractCandidate.meta.source} ({extractCandidate.meta.domain})
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="extract-preview-stats">
+                        <span>Ingredients: {(extractCandidate.data.ingredients || []).length}</span>
+                        <span>Directions: {(extractCandidate.data.directions || []).length}</span>
+                        <span>Categories: {(extractCandidate.data.categories || []).length}</span>
+                      </div>
+
+                      {extractWarnings.length > 0 ? (
+                        <div className="extract-warning-box">
+                          {extractWarnings.map((warning) => (
+                            <p key={warning}>{warning}</p>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {extractCandidate.data.image ? (
+                        <div className="extract-image-preview">
+                          <img src={extractCandidate.data.image} alt="Extracted recipe" />
+                        </div>
+                      ) : null}
+
+                      <div className="extract-preview-actions">
+                        <button className="btn btn-primary btn-small" type="button" onClick={applyExtractCandidate}>
+                          Apply Extracted Fields
+                        </button>
+                        <button className="btn btn-secondary btn-small" type="button" onClick={discardExtractCandidate}>
+                          Discard
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="form-group">
+                    <label htmlFor="recipeIngredients">Ingredients (optional / extracted)</label>
+                    <textarea
+                      id="recipeIngredients"
+                      rows="4"
+                      placeholder="Extracted ingredients will appear here"
+                      value={form.ingredients}
+                      onChange={(event) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          ingredients: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="recipeDirections">Directions (optional / extracted)</label>
+                    <textarea
+                      id="recipeDirections"
+                      rows="4"
+                      placeholder="Extracted directions will appear here"
+                      value={form.directions}
+                      onChange={(event) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          directions: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                </>
               ) : (
                 <>
                   <div className="form-group">
@@ -1134,6 +2077,33 @@ function App() {
                   </div>
                 </>
               )}
+
+              <div className="form-group">
+                <label htmlFor="recipeImage">Recipe Image URL (optional)</label>
+                <input
+                  id="recipeImage"
+                  type="url"
+                  placeholder="https://example.com/recipe-image.jpg"
+                  value={form.image}
+                  onChange={(event) => setForm((prev) => ({ ...prev, image: event.target.value }))}
+                />
+              </div>
+
+              {form.image ? (
+                <div className="recipe-image-editor">
+                  <div className="extract-image-preview">
+                    <img src={form.image} alt="Recipe preview" />
+                  </div>
+                  <button
+                    className="btn btn-secondary btn-small"
+                    type="button"
+                    onClick={() => setForm((prev) => ({ ...prev, image: '' }))}
+                  >
+                    <i className="fas fa-image" />
+                    Remove Image
+                  </button>
+                </div>
+              ) : null}
 
               <div className="form-group">
                 <label>Categories (select at least one)</label>
@@ -1317,6 +2287,216 @@ function App() {
         </div>
       ) : null}
 
+      {isShoppingListOpen ? (
+        <div className="modal show" role="dialog" aria-modal="true" onClick={closeShoppingListBuilder}>
+          <div className="modal-content shopping-list-modal" onClick={(event) => event.stopPropagation()}>
+            <span className="close" onClick={closeShoppingListBuilder}>
+              &times;
+            </span>
+            <h2>Shopping List Builder</h2>
+            <p className="import-preview-subtitle">
+              Select recipes and get safe combined totals by parsed quantity and unit. Ambiguous entries appear in
+              Needs Review.
+            </p>
+
+            <div className="import-preview-actions">
+              <button className="btn btn-secondary btn-small" type="button" onClick={() => setAllShoppingCandidates(true)}>
+                Select All
+              </button>
+              <button className="btn btn-secondary btn-small" type="button" onClick={() => setAllShoppingCandidates(false)}>
+                Clear All
+              </button>
+              <button className="btn btn-secondary btn-small" type="button" onClick={clearShoppingChecklist}>
+                Uncheck All
+              </button>
+              <button className="btn btn-secondary btn-small" type="button" onClick={exportShoppingListText}>
+                Export List
+              </button>
+              <span className="shopping-list-count">Recipes selected: {selectedShoppingCount}</span>
+            </div>
+
+            <div className="shopping-unit-toggle" role="group" aria-label="Preferred units">
+              <button
+                type="button"
+                className={`btn btn-small ${shoppingUnitSystem === 'us' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setShoppingUnitSystem('us')}
+              >
+                US Units
+              </button>
+              <button
+                type="button"
+                className={`btn btn-small ${shoppingUnitSystem === 'metric' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setShoppingUnitSystem('metric')}
+              >
+                Metric Units
+              </button>
+            </div>
+
+            <div className="shopping-list-layout">
+              <section className="shopping-list-recipes">
+                <h3>Recipes</h3>
+                <div className="shopping-list-recipe-items">
+                  {shoppingCandidates.map((candidate) => (
+                    <label key={candidate.previewId} className="shopping-list-recipe-item">
+                      <input
+                        type="checkbox"
+                        checked={candidate.selected}
+                        onChange={() => toggleShoppingCandidate(candidate.previewId)}
+                      />
+                      <span>
+                        {candidate.recipe.name}
+                        <small>{(candidate.recipe.ingredients || []).length} ingredients</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </section>
+
+              <section className="shopping-list-ingredients">
+                <h3>Combined Totals ({combinedShoppingItems.length})</h3>
+                {combinedShoppingItems.length > 0 ? (
+                  <div className="shopping-list-ingredient-items">
+                    {combinedShoppingItems.map((item) => (
+                      <label key={item.key} className="shopping-list-ingredient-item">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(shoppingChecklist[item.key])}
+                          onChange={() => toggleShoppingItemChecked(item.key)}
+                        />
+                        <span className={shoppingChecklist[item.key] ? 'shopping-list-item-checked' : ''}>
+                          {item.amountLabel}
+                          {item.sourceCount > 1 ? ` (${item.sourceCount} lines)` : ''}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="shopping-list-empty">Select at least one recipe with parseable ingredients.</p>
+                )}
+
+                {visibleUnresolvedItems.length > 0 ? (
+                  <>
+                    <h3 className="shopping-list-subtitle">Needs Review ({visibleUnresolvedItems.length})</h3>
+                    <p className="shopping-merge-legend">
+                      <span>
+                        <strong>Left checkbox:</strong> Cross item off checklist.
+                      </span>
+                      <span>
+                        <strong>Right checkbox:</strong> You can select multiple items and click "Merge Selected" to combine them into a single checklist entry. This is useful for manually merging similar items that couldn't be automatically combined.
+                      </span>
+                    </p>
+                    <div className="shopping-manual-tools">
+                      <input
+                        type="text"
+                        className="shopping-manual-input"
+                        placeholder="Add you own label for merged items"
+                        value={shoppingManualText}
+                        onChange={(event) => setShoppingManualText(event.target.value)}
+                      />
+                      <button className="btn btn-secondary btn-small" type="button" onClick={createManualMergeGroup}>
+                        Merge Selected
+                      </button>
+                    </div>
+                    <div className="shopping-list-ingredient-items">
+                      {visibleUnresolvedItems.map((item) => (
+                        <label key={item.key} className="shopping-list-ingredient-item shopping-list-unresolved-item">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(shoppingChecklist[item.key])}
+                            onChange={() => toggleShoppingItemChecked(item.key)}
+                            title="Checklist done"
+                          />
+                          <input
+                            type="checkbox"
+                            className="shopping-merge-check"
+                            checked={Boolean(shoppingMergeSelection[item.key])}
+                            onChange={() => toggleShoppingMergeSelection(item.key)}
+                            title="Select for manual merge"
+                          />
+                          <span className={shoppingChecklist[item.key] ? 'shopping-list-item-checked' : ''}>
+                            {item.text}
+                            {item.count > 1 ? ` (${item.count} recipes)` : ''}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+
+                {shoppingManualGroups.length > 0 ? (
+                  <>
+                    <h3 className="shopping-list-subtitle">Manual Merge Items ({shoppingManualGroups.length})</h3>
+                    <div className="shopping-list-ingredient-items">
+                      {shoppingManualGroups.map((group) => (
+                        <div key={group.key} className="shopping-list-ingredient-item shopping-list-manual-item">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(shoppingChecklist[group.key])}
+                            onChange={() => toggleShoppingItemChecked(group.key)}
+                          />
+                          {shoppingManualEditingKey === group.key ? (
+                            <input
+                              type="text"
+                              className={`shopping-manual-item-input ${shoppingChecklist[group.key] ? 'shopping-list-item-checked' : ''}`}
+                              value={shoppingManualEditDraft}
+                              onChange={(event) => setShoppingManualEditDraft(event.target.value)}
+                            />
+                          ) : (
+                            <span className={`shopping-manual-item-text ${shoppingChecklist[group.key] ? 'shopping-list-item-checked' : ''}`}>
+                              {group.text}
+                            </span>
+                          )}
+                          <span className="shopping-manual-item-count">
+                            {group.count > 1 ? `${group.count} lines` : '1 line'}
+                          </span>
+                          <div className="shopping-manual-actions">
+                            {shoppingManualEditingKey === group.key ? (
+                              <>
+                                <button
+                                  className="btn btn-small btn-primary"
+                                  type="button"
+                                  onClick={() => saveEditingManualMergeGroup(group.key)}
+                                >
+                                  Save
+                                </button>
+                                <button className="btn btn-small btn-secondary" type="button" onClick={cancelEditingManualMergeGroup}>
+                                  Cancel
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                className="btn btn-small btn-secondary"
+                                type="button"
+                                onClick={() => startEditingManualMergeGroup(group)}
+                              >
+                                Edit
+                              </button>
+                            )}
+                            <button
+                              className="btn btn-small btn-secondary"
+                              type="button"
+                              onClick={() => splitManualMergeGroup(group.key)}
+                            >
+                              Split
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+              </section>
+            </div>
+
+            <div className="import-preview-footer">
+              <button className="btn btn-secondary" type="button" onClick={closeShoppingListBuilder}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <footer className="footer">
         <div className="container">
           <p>
@@ -1325,7 +2505,7 @@ function App() {
         </div>
       </footer>
 
-      {showInstallBtn && !isModalOpen && !isImportPreviewOpen && !isExportPreviewOpen ? (
+      {showInstallBtn && !isModalOpen && !isImportPreviewOpen && !isExportPreviewOpen && !isShoppingListOpen && !focusedRecipe ? (
         <button id="pwaInstallBtn" className="btn btn-secondary pwa-install-btn" type="button" onClick={handleInstallClick}>
           <i className="fas fa-download" />
           Install App
