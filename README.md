@@ -9,6 +9,8 @@ This app can be deployed under a subfolder like `https://your-domain.com/recipec
 Set `VITE_API_BASE` when building:
 
 - `VITE_API_BASE=/recipecollector/api` (or `/api` if your host proxies API at the domain root)
+- If frontend is static-hosted and API is on Render, use full URL (example):
+  - `VITE_API_BASE=https://recipes-zmky.onrender.com/api`
 
 Example build command:
 
