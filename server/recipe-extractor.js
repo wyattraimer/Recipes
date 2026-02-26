@@ -93,8 +93,8 @@ function stripTags(value) {
     const decoded = cheerio.load(`<div>${text}</div>`).root().text()
     text = decoded
       .replace(/<[^>]+>/g, ' ')
-      .replace(/^[a-z][a-z0-9-]*\s+id=["'][^"']+["']>\s*/i, '')
-      .replace(/^id=["'][^"']+["']>\s*/i, '')
+      .replace(/^(?:[a-z][a-z0-9-]*\s+)?id=["'“”][^"'“”]+["'“”]>\s*(?:\d+\.\s*)?/i, '')
+      .replace(/^[\u2022\u00b7\-–—]+\s*/, '')
       .replace(/\s+/g, ' ')
       .trim()
 
