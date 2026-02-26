@@ -38,6 +38,8 @@ app.post('/api/recipes/extract', async (req, res) => {
           ? 400
           : code === 'FETCH_FAILED'
             ? 502
+            : code === 'FETCH_FORBIDDEN'
+              ? 403
             : code === 'TIMEOUT'
               ? 504
               : code === 'NO_RECIPE_FOUND'

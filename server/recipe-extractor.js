@@ -2,8 +2,12 @@ import * as cheerio from 'cheerio'
 
 const FETCH_TIMEOUT_MS = 12000
 const MAX_HTML_BYTES = 1_500_000
+const MAX_FETCH_ATTEMPTS = 3
+const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504])
 const APP_USER_AGENT =
   'RecipeCollector/1.0 (+https://localhost; recipe metadata extraction for personal cookbook app)'
+const BROWSER_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
 function extractionError(code, message) {
   const error = new Error(message)
@@ -281,42 +285,69 @@ function extractFromMeta($, pageUrl) {
 }
 
 async function fetchHtml(url) {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  const headersByAttempt = [
+    {
+      'User-Agent': APP_USER_AGENT,
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+    {
+      'User-Agent': BROWSER_USER_AGENT,
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Upgrade-Insecure-Requests': '1',
+    },
+  ]
 
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': APP_USER_AGENT,
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      },
-      redirect: 'follow',
-    })
+  for (let attempt = 0; attempt < MAX_FETCH_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+    const headers = headersByAttempt[Math.min(attempt, headersByAttempt.length - 1)]
 
-    if (!response.ok) {
-      throw extractionError('FETCH_FAILED', `Could not fetch URL (HTTP ${response.status})`)
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers,
+        redirect: 'follow',
+      })
+
+      if (response.ok) {
+        const html = await response.text()
+        if (html.length > MAX_HTML_BYTES) {
+          throw extractionError('FETCH_FAILED', 'Recipe page is too large to process')
+        }
+
+        return { html, finalUrl: response.url || url }
+      }
+
+      if (response.status === 401 || response.status === 403) {
+        throw extractionError(
+          'FETCH_FORBIDDEN',
+          'This website blocked automated recipe extraction from the server. Try another recipe URL or add this recipe manually.',
+        )
+      }
+
+      if (!RETRYABLE_STATUS_CODES.has(response.status) || attempt === MAX_FETCH_ATTEMPTS - 1) {
+        throw extractionError('FETCH_FAILED', `Could not fetch URL (HTTP ${response.status})`)
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)))
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        if (attempt === MAX_FETCH_ATTEMPTS - 1) {
+          throw extractionError('TIMEOUT', 'Timed out while fetching recipe page')
+        }
+      } else if (error.code) {
+        throw error
+      } else if (attempt === MAX_FETCH_ATTEMPTS - 1) {
+        throw extractionError('FETCH_FAILED', 'Unable to fetch recipe page')
+      }
+    } finally {
+      clearTimeout(timeout)
     }
-
-    const html = await response.text()
-    if (html.length > MAX_HTML_BYTES) {
-      throw extractionError('FETCH_FAILED', 'Recipe page is too large to process')
-    }
-
-    return { html, finalUrl: response.url || url }
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      throw extractionError('TIMEOUT', 'Timed out while fetching recipe page')
-    }
-
-    if (error.code) {
-      throw error
-    }
-
-    throw extractionError('FETCH_FAILED', 'Unable to fetch recipe page')
-  } finally {
-    clearTimeout(timeout)
   }
+
+  throw extractionError('FETCH_FAILED', 'Unable to fetch recipe page')
 }
 
 function buildNormalizedRecipe(recipeNode, pageUrl) {
