@@ -53,6 +53,7 @@ This repo is now configured to run on Render as a single Node web service that s
 
 - `NODE_ENV=production`
 - `VITE_API_BASE=/api`
+- `CORS_ALLOWED_ORIGINS=https://recipes-zmky.onrender.com,https://org.coloradomesa.edu`
 
 ### Notes
 
@@ -61,5 +62,19 @@ This repo is now configured to run on Render as a single Node web service that s
 - Non-API routes fall back to `dist/index.html` for client-side routing.
 
 You can deploy with `render.yaml` from this repository, or set the same values manually in the Render dashboard.
+
+### Static-host frontend + Render API
+
+If your frontend is hosted at `https://org.coloradomesa.edu/~wwraimer//recipecollector/`, build with:
+
+```bash
+VITE_API_BASE=https://recipes-zmky.onrender.com/api npm run build
+```
+
+Then publish `dist/` to `F:\public_html\recipecollector`.
+
+Without this, the app defaults to `/api` on Apache and you will get `404 /api/recipes/extract`.
+
+Note: the frontend also includes a production fallback for `*.coloradomesa.edu` to use `https://recipes-zmky.onrender.com/api` automatically.
 
 If Render shows `sh: 1: vite: not found` during build, it means dev dependencies were skipped. Use the build command above (with `--include=dev`) and redeploy.

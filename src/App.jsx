@@ -53,7 +53,11 @@ const DEFAULT_RECIPES = [
 const STORAGE_KEY = 'recipeBookmarks'
 const THEME_KEY = 'recipeTheme'
 const MEAL_PLAN_KEY = 'recipeMealPlan'
-const API_BASE = (import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, '')
+const FALLBACK_API_BASE =
+  import.meta.env.PROD && window.location.hostname.endsWith('coloradomesa.edu')
+    ? 'https://recipes-zmky.onrender.com/api'
+    : '/api'
+const API_BASE = (import.meta.env.VITE_API_BASE || FALLBACK_API_BASE).replace(/\/$/, '')
 const EXTRACT_ENDPOINT = `${API_BASE}/recipes/extract`
 
 const MEAL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
