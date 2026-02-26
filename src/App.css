@@ -672,7 +672,7 @@ body::before {
   background: rgba(255, 255, 255, 0.66);
 }
 
-.no-recipes i {
+.no-recipes > i {
   font-size: 3.6rem;
   margin-bottom: 0.8rem;
   color: rgba(209, 72, 62, 0.5);
