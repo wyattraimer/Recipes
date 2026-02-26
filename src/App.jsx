@@ -572,7 +572,20 @@ function App() {
   }, [mealPlan])
 
   useEffect(() => {
+    document.documentElement.dataset.theme = theme
     document.body.dataset.theme = theme
+
+    const themeColor = theme === 'dark' ? '#0b131d' : '#e63946'
+    const themeColorMeta = document.querySelector('meta[name="theme-color"]')
+    if (themeColorMeta) {
+      themeColorMeta.setAttribute('content', themeColor)
+    }
+
+    const statusBarMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
+    if (statusBarMeta) {
+      statusBarMeta.setAttribute('content', theme === 'dark' ? 'black-translucent' : 'default')
+    }
+
     localStorage.setItem(THEME_KEY, theme)
   }, [theme])
 

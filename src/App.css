@@ -2,6 +2,12 @@
   min-height: 100vh;
 }
 
+html,
+body,
+#root {
+  background-color: #f2ebe3;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -38,6 +44,7 @@ body {
     radial-gradient(circle at 100% 0%, rgba(114, 165, 138, 0.2), transparent 38%),
     linear-gradient(180deg, #fcf8f2 0%, #f7f2ea 45%, #f2ebe3 100%);
   background-attachment: fixed;
+  overscroll-behavior: none;
 }
 
 body::before {
@@ -1760,6 +1767,12 @@ body[data-theme='dark'] {
     radial-gradient(circle at 10% -10%, rgba(153, 65, 57, 0.28), transparent 42%),
     radial-gradient(circle at 100% 0%, rgba(53, 92, 74, 0.36), transparent 38%),
     linear-gradient(180deg, #121a24 0%, #0f1721 48%, #0b131d 100%);
+}
+
+html[data-theme='dark'],
+body[data-theme='dark'],
+body[data-theme='dark'] #root {
+  background-color: #0b131d;
 }
 
 body[data-theme='dark']::before {
