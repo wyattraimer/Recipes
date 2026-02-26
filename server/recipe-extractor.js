@@ -86,7 +86,24 @@ function stripTags(value) {
   if (typeof value !== 'string') {
     return ''
   }
-  return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+
+  let text = value
+
+  for (let pass = 0; pass < 2; pass += 1) {
+    const decoded = cheerio.load(`<div>${text}</div>`).root().text()
+    text = decoded
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/^[a-z][a-z0-9-]*\s+id=["'][^"']+["']>\s*/i, '')
+      .replace(/^id=["'][^"']+["']>\s*/i, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!text || text === decoded) {
+      break
+    }
+  }
+
+  return text
 }
 
 function normalizeLines(values, maxItems = 120) {
