@@ -1661,6 +1661,24 @@ function App() {
                 </button>
               </div>
             </div>
+
+            <details className="ios-install-help">
+              <summary>
+                <i className="fas fa-mobile-screen-button" />
+                iPhone App Install Tips
+              </summary>
+              <p>
+                Recommended: Use Brave as your default browser to help block ads and popups.
+              </p>
+              <ol>
+                <li>When you want to install this app, open this website in Safari on your iPhone.</li>
+                <li>Tap the button with three dots on the bottom right.</li>
+                <li>Tap 'Share' (square with the up arrow).</li>
+                <li>Tap 'More'.</li>
+                <li>Select Add to Home Screen.</li>
+                <li>Tap Add to finish.</li>
+              </ol>
+            </details>
           </section>
 
           {activeView === 'recipes' ? (
@@ -2355,18 +2373,18 @@ function App() {
             <h2>Shopping List Builder</h2>
             <p className="import-preview-subtitle">
               Select recipes and get safe combined totals by parsed quantity and unit. Ambiguous entries appear in
-              Needs Review.
+              the Needs Review section.
             </p>
 
             <div className="import-preview-actions">
               <button className="btn btn-secondary btn-small" type="button" onClick={() => setAllShoppingCandidates(true)}>
-                Select All
+                Select All Recipes
               </button>
               <button className="btn btn-secondary btn-small" type="button" onClick={() => setAllShoppingCandidates(false)}>
-                Clear All
+                Clear All Recipes
               </button>
               <button className="btn btn-secondary btn-small" type="button" onClick={clearShoppingChecklist}>
-                Uncheck All
+                Uncheck All Ingredients
               </button>
               <button className="btn btn-secondary btn-small" type="button" onClick={exportShoppingListText}>
                 Export List

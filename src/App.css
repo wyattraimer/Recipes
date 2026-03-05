@@ -176,6 +176,46 @@ body::before {
   margin-left: auto;
 }
 
+.ios-install-help {
+  margin-top: 0.35rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 0.7rem 0.8rem;
+}
+
+.ios-install-help summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  color: var(--ink-900);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.ios-install-help summary::marker {
+  color: var(--sage-500);
+}
+
+.ios-install-help p {
+  margin: 0.55rem 0 0.45rem;
+  color: var(--ink-700);
+  font-size: 0.86rem;
+}
+
+.ios-install-help ol {
+  margin: 0;
+  padding-left: 1.15rem;
+  color: var(--ink-700);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.ios-install-help li + li {
+  margin-top: 0.32rem;
+}
+
 .search-box {
   position: relative;
   max-width: 520px;
@@ -1571,6 +1611,11 @@ body::before {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .ios-install-help {
+    margin-top: 0.45rem;
+    padding: 0.65rem 0.68rem;
+  }
+
   .controls-primary-actions .btn,
   .controls-utility-actions .btn {
     width: 100%;
@@ -1820,6 +1865,22 @@ body::before {
 
   .theme-switch {
     margin-left: 0;
+    width: fit-content;
+    justify-self: start;
+    align-self: start;
+  }
+
+  .ios-install-help {
+    padding: 0.62rem 0.62rem;
+  }
+
+  .ios-install-help summary {
+    font-size: 0.84rem;
+  }
+
+  .ios-install-help p,
+  .ios-install-help ol {
+    font-size: 0.8rem;
   }
 
   .recipe-actions {
@@ -2043,6 +2104,24 @@ body[data-theme='dark'] .extract-image-preview img {
 body[data-theme='dark'] .extract-warning-box {
   border-color: rgba(245, 193, 94, 0.4);
   background: rgba(89, 70, 34, 0.35);
+}
+
+body[data-theme='dark'] .ios-install-help {
+  background: linear-gradient(180deg, rgba(28, 40, 56, 0.94), rgba(20, 30, 44, 0.95));
+  border-color: rgba(164, 180, 200, 0.34);
+}
+
+body[data-theme='dark'] .ios-install-help summary {
+  color: #f2f7ff;
+}
+
+body[data-theme='dark'] .ios-install-help p,
+body[data-theme='dark'] .ios-install-help ol {
+  color: #d6e0ec;
+}
+
+body[data-theme='dark'] .ios-install-help summary::marker {
+  color: #a8c5e5;
 }
 
 body[data-theme='dark'] .extract-preview-card,
