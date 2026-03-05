@@ -1265,6 +1265,17 @@ body::before {
   margin-bottom: 0.65rem;
 }
 
+.extract-notice {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--ink-700);
+  background: rgba(114, 165, 138, 0.12);
+  border: 1px solid rgba(114, 165, 138, 0.24);
+  border-radius: 10px;
+  padding: 0.42rem 0.56rem;
+}
+
 .extract-meta {
   font-size: 0.8rem;
   color: var(--ink-700);
@@ -1409,6 +1420,25 @@ body::before {
   background: rgba(255, 255, 255, 0.95);
   border: 1px solid rgba(90, 105, 122, 0.2);
   box-shadow: var(--shadow-lift);
+}
+
+.back-to-top-btn {
+  position: fixed;
+  right: 16px;
+  bottom: 78px;
+  z-index: 10002;
+  min-width: 0;
+  width: auto;
+  padding-inline: 0.9rem;
+  box-shadow: 0 12px 24px rgba(209, 72, 62, 0.34);
+}
+
+.back-to-top-btn i {
+  font-size: 0.9rem;
+}
+
+.back-to-top-btn span {
+  display: inline;
 }
 
 .sw-update-message {
@@ -1581,6 +1611,36 @@ body::before {
     grid-template-columns: 1fr;
   }
 
+  .shopping-list-modal {
+    width: 96%;
+    max-height: 92vh;
+    margin: 4vh auto;
+    padding: 0.95rem;
+  }
+
+  .shopping-list-modal .import-preview-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.45rem;
+  }
+
+  .shopping-list-modal .import-preview-actions .btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .shopping-list-modal .shopping-list-count {
+    grid-column: 1 / -1;
+    margin-left: 0;
+  }
+
+  .shopping-list-modal .shopping-list-recipe-items,
+  .shopping-list-modal .shopping-list-ingredient-items {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+
   .shopping-unit-toggle {
     width: 100%;
     display: grid;
@@ -1638,6 +1698,26 @@ body::before {
     border-radius: 14px;
     padding: 0.85rem;
   }
+
+  .back-to-top-btn {
+    left: 50%;
+    right: auto;
+    bottom: 74px;
+    transform: translateX(-50%);
+    width: 52px;
+    height: 52px;
+    min-width: 52px;
+    padding: 0;
+    border-radius: 999px;
+  }
+
+  .back-to-top-btn span {
+    display: none;
+  }
+
+  .back-to-top-btn i {
+    font-size: 0.88rem;
+  }
 }
 
 @media (max-width: 768px) and (orientation: landscape) {
@@ -1645,6 +1725,38 @@ body::before {
     grid-column: auto;
     margin-left: auto;
     justify-self: end;
+  }
+}
+
+@media (max-width: 1023px) and (orientation: landscape) {
+  .shopping-list-modal {
+    width: 96%;
+    max-height: 88vh;
+    margin: 3vh auto;
+    padding: 0.9rem;
+  }
+
+  .shopping-list-modal .import-preview-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.45rem;
+  }
+
+  .shopping-list-modal .import-preview-actions .btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .shopping-list-modal .shopping-list-count {
+    grid-column: 1 / -1;
+    margin-left: 0;
+  }
+
+  .shopping-list-modal .shopping-list-recipe-items,
+  .shopping-list-modal .shopping-list-ingredient-items {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
   }
 }
 
@@ -1722,8 +1834,23 @@ body::before {
     width: 100%;
   }
 
+  .extract-notice {
+    font-size: 0.78rem;
+  }
+
   .extract-preview-actions .btn {
     width: 100%;
+  }
+
+  .shopping-list-modal {
+    width: 96%;
+    max-height: 90vh;
+    margin: 5vh auto;
+    padding: 0.85rem 0.8rem 0.9rem;
+  }
+
+  .shopping-list-modal .import-preview-actions {
+    grid-template-columns: 1fr;
   }
 
   .messages-wrap {
@@ -1744,6 +1871,21 @@ body::before {
     right: 12px;
     left: 12px;
     width: auto;
+  }
+
+  .back-to-top-btn {
+    left: 50%;
+    right: auto;
+    bottom: 70px;
+    transform: translateX(-50%);
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    padding: 0;
+  }
+
+  .back-to-top-btn i {
+    font-size: 0.84rem;
   }
 }
 

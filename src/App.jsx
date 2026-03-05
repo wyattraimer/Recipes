@@ -452,6 +452,7 @@ function App() {
   const [deferredPrompt, setDeferredPrompt] = useState(null)
   const [showInstallBtn, setShowInstallBtn] = useState(false)
   const [showSwUpdateBanner, setShowSwUpdateBanner] = useState(false)
+  const [showBackToTop, setShowBackToTop] = useState(false)
   const [theme, setTheme] = useState(() => {
     const savedTheme = localStorage.getItem(THEME_KEY)
     return savedTheme === 'dark' ? 'dark' : 'light'
@@ -647,6 +648,18 @@ function App() {
 
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  useEffect(() => {
+    const onScroll = () => {
+      const shouldShow = window.scrollY > 320
+      setShowBackToTop((prev) => (prev === shouldShow ? prev : shouldShow))
+    }
+
+    window.addEventListener('scroll', onScroll, { passive: true })
+    onScroll()
+
+    return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
   useEffect(() => {
@@ -1488,6 +1501,30 @@ function App() {
     setShowSwUpdateBanner(false)
   }
 
+  function scrollToTop() {
+    const startY = window.scrollY
+    if (startY <= 0) {
+      return
+    }
+
+    const duration = 260
+    const startTime = performance.now()
+
+    const step = (now) => {
+      const elapsed = now - startTime
+      const progress = Math.min(elapsed / duration, 1)
+      const eased = 1 - Math.pow(1 - progress, 3)
+
+      window.scrollTo(0, Math.round(startY * (1 - eased)))
+
+      if (progress < 1) {
+        window.requestAnimationFrame(step)
+      }
+    }
+
+    window.requestAnimationFrame(step)
+  }
+
   return (
     <>
       <header className="header">
@@ -1985,6 +2022,10 @@ function App() {
                       <i className={`fas ${isExtracting ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'}`} />
                       {isExtracting ? 'Extracting...' : 'Extract Details from URL'}
                     </button>
+                    <p className="extract-notice">
+                      First extract can take up to about 50 seconds while the free-tier API wakes up. After that,
+                      extracts are usually much faster.
+                    </p>
                   </div>
 
                   {extractCandidate ? (
@@ -2540,6 +2581,13 @@ function App() {
             Later
           </button>
         </div>
+      ) : null}
+
+      {showBackToTop && !showInstallBtn && !showSwUpdateBanner && !isModalOpen && !isImportPreviewOpen && !isExportPreviewOpen && !isShoppingListOpen && !focusedRecipe ? (
+        <button className="btn btn-primary back-to-top-btn" type="button" onClick={scrollToTop} aria-label="Back to top">
+          <i className="fas fa-arrow-up" />
+          <span>Top</span>
+        </button>
       ) : null}
 
       <div className="messages-wrap">
