@@ -674,6 +674,20 @@ function App() {
       setIsOnline(online)
 
       if (!changed) {
+        if (!online) {
+          const id = Date.now() + Math.random()
+          setMessages((prev) => [
+            ...prev,
+            {
+              id,
+              text: 'You are offline. Some features like URL extraction will not work.',
+              type: 'info',
+            },
+          ])
+          window.setTimeout(() => {
+            setMessages((prev) => prev.filter((message) => message.id !== id))
+          }, 3000)
+        }
         return
       }
 
@@ -2157,7 +2171,7 @@ function App() {
                       className="btn btn-secondary"
                       type="button"
                       onClick={handleExtractFromUrl}
-                      disabled={isExtracting || !isOnline}
+                      disabled={isExtracting}
                     >
                       <i className={`fas ${isExtracting ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'}`} />
                       {isExtracting ? 'Extracting...' : isOnline ? 'Extract Details from URL' : 'Extraction Unavailable Offline'}
