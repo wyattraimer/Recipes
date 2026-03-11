@@ -1663,6 +1663,16 @@ function App() {
 
   return (
     <>
+      {messages.length > 0 ? (
+        <div className="message-stack" aria-live="polite" aria-atomic="true">
+          {messages.map((message) => (
+            <div key={message.id} className={`message-pill message-pill-${message.type}`}>
+              {message.text}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       <header className="header">
         <div className="container">
           <div className="header-content">
@@ -1674,6 +1684,14 @@ function App() {
           </div>
         </div>
       </header>
+
+      {!isOnline ? (
+        <div className="offline-status-banner" role="status" aria-live="polite">
+          <div className="container">
+            You are offline. URL extraction and external recipe links are unavailable until you reconnect.
+          </div>
+        </div>
+      ) : null}
 
       <main className="main">
         <div className="container">
