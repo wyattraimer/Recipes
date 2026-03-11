@@ -31,6 +31,8 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const req = event.request
+  const requestUrl = new URL(req.url)
+  const isSameOrigin = requestUrl.origin === self.location.origin
 
   if (req.mode === 'navigate') {
     event.respondWith(
@@ -74,6 +76,42 @@ self.addEventListener('fetch', (event) => {
 
         return (await cache.match(APP_URL)) || (await cache.match(OFFLINE_URL))
       })(),
+    )
+    return
+  }
+
+  if (
+    req.method === 'GET' &&
+    isSameOrigin &&
+    ['style', 'script', 'font', 'image'].includes(req.destination)
+  ) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(async (cache) => {
+        const cached = await cache.match(req)
+
+        if (cached) {
+          event.waitUntil(
+            fetch(req)
+              .then((res) => {
+                if (res && res.ok) {
+                  return cache.put(req, res.clone())
+                }
+                return undefined
+              })
+              .catch(() => undefined),
+          )
+          return cached
+        }
+
+        return fetch(req)
+          .then((res) => {
+            if (res && res.ok) {
+              event.waitUntil(cache.put(req, res.clone()))
+            }
+            return res
+          })
+          .catch(() => undefined)
+      }),
     )
     return
   }
