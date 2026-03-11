@@ -1,9 +1,11 @@
-const CACHE_VERSION = 'v5'
+const CACHE_VERSION = 'v6'
 const CACHE_NAME = `recipe-collector-${CACHE_VERSION}`
 const withScope = (path = '') => new URL(path, self.registration.scope).toString()
 const OFFLINE_URL = withScope('offline.html')
+const APP_URL = withScope('')
+const NAVIGATION_NETWORK_TIMEOUT_MS = 4000
 const APP_SHELL = [
-  withScope(''),
+  APP_URL,
   OFFLINE_URL,
   withScope('site.webmanifest'),
   withScope('favicon-32x32.png'),
@@ -32,19 +34,46 @@ self.addEventListener('fetch', (event) => {
 
   if (req.mode === 'navigate') {
     event.respondWith(
-      fetch(req)
-        .then((res) => {
-          const copy = res.clone()
-          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy))
-          return res
-        })
-        .catch(async () => {
-          const cached = await caches.match(req)
-          if (cached) {
-            return cached
-          }
-          return caches.match(OFFLINE_URL)
-        }),
+      (async () => {
+        const cache = await caches.open(CACHE_NAME)
+        const cachedPage = (await cache.match(req)) || (await cache.match(APP_URL))
+
+        if (cachedPage) {
+          event.waitUntil(
+            fetch(req)
+              .then((res) => {
+                if (res && res.ok) {
+                  return cache.put(req, res.clone())
+                }
+                return undefined
+              })
+              .catch(() => undefined),
+          )
+          return cachedPage
+        }
+
+        let timeoutId
+        const networkResponse = await Promise.race([
+          fetch(req),
+          new Promise((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('Navigation timeout')), NAVIGATION_NETWORK_TIMEOUT_MS)
+          }),
+        ])
+          .then((res) => {
+            if (timeoutId) {
+              clearTimeout(timeoutId)
+            }
+            return res
+          })
+          .catch(() => null)
+
+        if (networkResponse && networkResponse.ok) {
+          event.waitUntil(cache.put(req, networkResponse.clone()))
+          return networkResponse
+        }
+
+        return (await cache.match(APP_URL)) || (await cache.match(OFFLINE_URL))
+      })(),
     )
     return
   }
