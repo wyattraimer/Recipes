@@ -11,6 +11,6 @@
 		{ "src": "favicon-16x16.png", "sizes": "16x16", "type": "image/png" }
 	],
 	"theme_color": "#e63946",
-	"background_color": "#ffffff",
+	"background_color": "#f2ebe3",
 	"display": "standalone"
 }
