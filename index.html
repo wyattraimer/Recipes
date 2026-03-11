@@ -20,8 +20,87 @@
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
     />
+    <style>
+      #app-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 20000;
+        display: grid;
+        place-items: center;
+        padding: 20px;
+        background:
+          radial-gradient(circle at 12% -8%, rgba(229, 92, 77, 0.22), transparent 42%),
+          radial-gradient(circle at 100% 0%, rgba(114, 165, 138, 0.22), transparent 40%),
+          linear-gradient(180deg, #fcf8f2 0%, #f7f2ea 45%, #f2ebe3 100%);
+        color: #1f2933;
+        transition: opacity 240ms ease, visibility 240ms ease;
+      }
+
+      #app-splash[data-hidden='true'] {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      .app-splash-card {
+        width: min(340px, 100%);
+        border-radius: 20px;
+        text-align: center;
+        padding: 24px 20px 18px;
+        background: rgba(255, 255, 255, 0.86);
+        border: 1px solid rgba(90, 105, 122, 0.2);
+        box-shadow: 0 14px 28px rgba(31, 41, 51, 0.14);
+        backdrop-filter: blur(6px);
+      }
+
+      .app-splash-title {
+        margin: 0;
+        font: 700 clamp(1.4rem, 4.5vw, 1.7rem) 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+          Roboto, sans-serif;
+        letter-spacing: 0.01em;
+      }
+
+      .app-splash-subtitle {
+        margin: 0.45rem 0 0;
+        font: 500 0.92rem/1.45 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        color: #3f4f5f;
+      }
+
+      .app-splash-loader {
+        width: 46px;
+        height: 46px;
+        margin: 0 auto 0.9rem;
+        border-radius: 50%;
+        border: 3px solid rgba(209, 72, 62, 0.2);
+        border-top-color: #d1483e;
+        animation: splash-spin 900ms linear infinite;
+      }
+
+      @keyframes splash-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #app-splash {
+          transition: none;
+        }
+
+        .app-splash-loader {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="app-splash" role="status" aria-live="polite" aria-label="Loading Recipe Collector">
+      <div class="app-splash-card">
+        <div class="app-splash-loader" aria-hidden="true"></div>
+        <p class="app-splash-title">Recipe Collector</p>
+        <p class="app-splash-subtitle">Getting your recipes ready...</p>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="./src/main.jsx"></script>
   </body>
