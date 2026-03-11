@@ -517,6 +517,7 @@ function App() {
   const [showInstallBtn, setShowInstallBtn] = useState(false)
   const [showSwUpdateBanner, setShowSwUpdateBanner] = useState(false)
   const [showBackToTop, setShowBackToTop] = useState(false)
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine)
   const [theme, setTheme] = useState(() => {
     const savedTheme = localStorage.getItem(THEME_KEY)
     return savedTheme === 'dark' ? 'dark' : 'light'
@@ -559,6 +560,7 @@ function App() {
 
   const swRegistrationRef = useRef(null)
   const importInputRef = useRef(null)
+  const networkStatusRef = useRef(navigator.onLine)
 
   const filteredRecipes = useMemo(() => {
     const normalizedSearch = searchTerm.toLowerCase().trim()
@@ -663,6 +665,45 @@ function App() {
 
     window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt)
     return () => window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt)
+  }, [])
+
+  useEffect(() => {
+    const setOnlineStatus = (online) => {
+      const changed = networkStatusRef.current !== online
+      networkStatusRef.current = online
+      setIsOnline(online)
+
+      if (!changed) {
+        return
+      }
+
+      const id = Date.now() + Math.random()
+      setMessages((prev) => [
+        ...prev,
+        {
+          id,
+          text: online
+            ? 'Back online. Network features are available again.'
+            : 'You are offline. Some features like URL extraction will not work.',
+          type: online ? 'success' : 'info',
+        },
+      ])
+      window.setTimeout(() => {
+        setMessages((prev) => prev.filter((message) => message.id !== id))
+      }, 3000)
+    }
+
+    const onOnline = () => setOnlineStatus(true)
+    const onOffline = () => setOnlineStatus(false)
+
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    setOnlineStatus(navigator.onLine)
+
+    return () => {
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+    }
   }, [])
 
   useEffect(() => {
@@ -772,6 +813,15 @@ function App() {
     window.setTimeout(() => {
       setMessages((prev) => prev.filter((message) => message.id !== id))
     }, 3000)
+  }
+
+  function requireOnline(featureLabel, detail = 'requires an internet connection.') {
+    if (networkStatusRef.current) {
+      return true
+    }
+
+    showMessage(`You are offline. ${featureLabel} ${detail}`, 'info')
+    return false
   }
 
   function closeImportPreview() {
@@ -983,6 +1033,10 @@ function App() {
   }
 
   function visitRecipe(url) {
+    if (!requireOnline('Opening recipe websites')) {
+      return
+    }
+
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 
@@ -1014,6 +1068,10 @@ function App() {
     const inputUrl = form.url.trim()
     if (!inputUrl) {
       showMessage('Enter a recipe URL first.', 'error')
+      return
+    }
+
+    if (!requireOnline('URL extraction')) {
       return
     }
 
@@ -2099,14 +2157,15 @@ function App() {
                       className="btn btn-secondary"
                       type="button"
                       onClick={handleExtractFromUrl}
-                      disabled={isExtracting}
+                      disabled={isExtracting || !isOnline}
                     >
                       <i className={`fas ${isExtracting ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'}`} />
-                      {isExtracting ? 'Extracting...' : 'Extract Details from URL'}
+                      {isExtracting ? 'Extracting...' : isOnline ? 'Extract Details from URL' : 'Extraction Unavailable Offline'}
                     </button>
                     <p className="extract-notice">
-                      First extract can take up to about 50 seconds while the free-tier API wakes up. After that,
-                      extracts are usually much faster.
+                      {isOnline
+                        ? 'First extract can take up to about 50 seconds while the free-tier API wakes up. After that, extracts are usually much faster.'
+                        : 'You are offline. URL extraction needs internet, but your saved recipes, planner, and cached pages still work.'}
                     </p>
                   </div>
 
