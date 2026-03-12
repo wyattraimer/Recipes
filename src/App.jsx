@@ -668,26 +668,16 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const setOnlineStatus = (online) => {
+    const setOnlineStatus = (online, notify = true) => {
       const changed = networkStatusRef.current !== online
       networkStatusRef.current = online
       setIsOnline(online)
 
       if (!changed) {
-        if (!online) {
-          const id = Date.now() + Math.random()
-          setMessages((prev) => [
-            ...prev,
-            {
-              id,
-              text: 'You are offline. Some features like URL extraction will not work.',
-              type: 'info',
-            },
-          ])
-          window.setTimeout(() => {
-            setMessages((prev) => prev.filter((message) => message.id !== id))
-          }, 3000)
-        }
+        return
+      }
+
+      if (!notify) {
         return
       }
 
@@ -707,16 +697,52 @@ function App() {
       }, 3000)
     }
 
-    const onOnline = () => setOnlineStatus(true)
-    const onOffline = () => setOnlineStatus(false)
+    const onOnline = () => setOnlineStatus(true, true)
+    const onOffline = () => setOnlineStatus(false, true)
+
+    const verifyReachability = async () => {
+      if (!navigator.onLine) {
+        setOnlineStatus(false, false)
+        return
+      }
+
+      const controller = new AbortController()
+      const timeoutId = window.setTimeout(() => controller.abort(), 4500)
+
+      try {
+        const response = await fetch(`${API_BASE}/health`, {
+          method: 'GET',
+          cache: 'no-store',
+          signal: controller.signal,
+        })
+        setOnlineStatus(response.ok, false)
+      } catch {
+        setOnlineStatus(false, false)
+      } finally {
+        window.clearTimeout(timeoutId)
+      }
+    }
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void verifyReachability()
+      }
+    }
 
     window.addEventListener('online', onOnline)
     window.addEventListener('offline', onOffline)
-    setOnlineStatus(navigator.onLine)
+    window.addEventListener('focus', onVisibilityChange)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
+    networkStatusRef.current = navigator.onLine
+    setIsOnline(navigator.onLine)
+    void verifyReachability()
 
     return () => {
       window.removeEventListener('online', onOnline)
       window.removeEventListener('offline', onOffline)
+      window.removeEventListener('focus', onVisibilityChange)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }, [])
 
@@ -1119,7 +1145,19 @@ function App() {
       })
       showMessage('Recipe details extracted. Review and apply.', 'success')
     } catch (error) {
-      showMessage(error.message || 'Extraction failed', 'error')
+      const failedMessage = error?.message || 'Extraction failed'
+      const isNetworkFailure =
+        error?.name === 'AbortError' ||
+        failedMessage === 'Failed to fetch' ||
+        failedMessage.toLowerCase().includes('network')
+
+      if (isNetworkFailure) {
+        networkStatusRef.current = false
+        setIsOnline(false)
+        showMessage('You are offline (or the API is unreachable). URL extraction is unavailable right now.', 'info')
+      } else {
+        showMessage(failedMessage, 'error')
+      }
       setExtractWarnings([])
       setExtractCandidate(null)
     } finally {
