@@ -38,6 +38,27 @@
         transition: opacity 240ms ease, visibility 240ms ease;
       }
 
+      #global-offline-banner {
+        position: fixed;
+        top: max(10px, env(safe-area-inset-top, 0px) + 6px);
+        left: 12px;
+        right: 12px;
+        z-index: 27000;
+        display: none;
+        border-radius: 14px;
+        border: 1px solid rgba(212, 132, 25, 0.3);
+        background: linear-gradient(135deg, rgba(255, 236, 199, 0.96), rgba(255, 247, 221, 0.96));
+        color: #6c3d0f;
+        box-shadow: 0 10px 18px rgba(166, 105, 35, 0.2);
+        padding: 0.62rem 0.82rem;
+        font: 600 0.88rem/1.35 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        text-align: center;
+      }
+
+      #global-offline-banner[data-visible='true'] {
+        display: block;
+      }
+
       #app-splash[data-hidden='true'] {
         opacity: 0;
         visibility: hidden;
@@ -94,8 +115,29 @@
         }
       }
     </style>
+    <script>
+      ;(() => {
+        const setBannerVisibility = () => {
+          const banner = document.getElementById('global-offline-banner')
+          if (!banner) return
+          banner.setAttribute('data-visible', navigator.onLine ? 'false' : 'true')
+        }
+
+        document.addEventListener('DOMContentLoaded', setBannerVisibility)
+        window.addEventListener('online', setBannerVisibility)
+        window.addEventListener('offline', setBannerVisibility)
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            setBannerVisibility()
+          }
+        })
+      })()
+    </script>
   </head>
   <body>
+    <div id="global-offline-banner" role="status" aria-live="polite" data-visible="false">
+      You are offline. URL extraction and external recipe links are unavailable until reconnect.
+    </div>
     <div id="app-splash" role="status" aria-live="polite" aria-label="Loading Recipe Collector">
       <div class="app-splash-card">
         <div class="app-splash-loader" aria-hidden="true"></div>

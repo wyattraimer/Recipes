@@ -1752,14 +1752,6 @@ function App() {
         </div>
       </header>
 
-      {!isOnline ? (
-        <div className="offline-status-banner" role="status" aria-live="polite">
-          <div className="container">
-            You are offline. URL extraction and external recipe links are unavailable until you reconnect.
-          </div>
-        </div>
-      ) : null}
-
       <main className="main">
         <div className="container">
           <section className="controls">
