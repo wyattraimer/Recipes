@@ -4,6 +4,7 @@ const withScope = (path = '') => new URL(path, self.registration.scope).toString
 const OFFLINE_URL = withScope('offline.html')
 const APP_URL = withScope('')
 const NAVIGATION_NETWORK_TIMEOUT_MS = 4000
+const NAVIGATION_FRESH_TIMEOUT_MS = 1800
 const APP_SHELL = [
   APP_URL,
   OFFLINE_URL,
@@ -14,6 +15,26 @@ const APP_SHELL = [
   withScope('android-chrome-192x192.png'),
   withScope('android-chrome-512x512.png'),
 ]
+
+async function fetchWithTimeout(request, timeoutMs) {
+  let timeoutId
+
+  const response = await Promise.race([
+    fetch(request),
+    new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error('Network timeout')), timeoutMs)
+    }),
+  ])
+    .then((res) => {
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+      return res
+    })
+    .catch(() => null)
+
+  return response
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)))
@@ -41,6 +62,12 @@ self.addEventListener('fetch', (event) => {
         const cachedPage = (await cache.match(req)) || (await cache.match(APP_URL))
 
         if (cachedPage) {
+          const freshResponse = await fetchWithTimeout(req, NAVIGATION_FRESH_TIMEOUT_MS)
+          if (freshResponse && freshResponse.ok) {
+            event.waitUntil(cache.put(req, freshResponse.clone()))
+            return freshResponse
+          }
+
           event.waitUntil(
             fetch(req)
               .then((res) => {
@@ -51,30 +78,22 @@ self.addEventListener('fetch', (event) => {
               })
               .catch(() => undefined),
           )
+
           return cachedPage
         }
 
-        let timeoutId
-        const networkResponse = await Promise.race([
-          fetch(req),
-          new Promise((_, reject) => {
-            timeoutId = setTimeout(() => reject(new Error('Navigation timeout')), NAVIGATION_NETWORK_TIMEOUT_MS)
-          }),
-        ])
-          .then((res) => {
-            if (timeoutId) {
-              clearTimeout(timeoutId)
-            }
-            return res
-          })
-          .catch(() => null)
+        const networkResponse = await fetchWithTimeout(req, NAVIGATION_NETWORK_TIMEOUT_MS)
 
         if (networkResponse && networkResponse.ok) {
           event.waitUntil(cache.put(req, networkResponse.clone()))
           return networkResponse
         }
 
-        return (await cache.match(APP_URL)) || (await cache.match(OFFLINE_URL))
+        return (
+          (await cache.match(APP_URL)) ||
+          (await cache.match(OFFLINE_URL)) ||
+          new Response('Offline', { status: 503, statusText: 'Offline' })
+        )
       })(),
     )
     return
@@ -110,7 +129,7 @@ self.addEventListener('fetch', (event) => {
             }
             return res
           })
-          .catch(() => undefined)
+          .catch(() => new Response('Offline', { status: 503, statusText: 'Offline' }))
       }),
     )
     return
@@ -134,7 +153,7 @@ self.addEventListener('fetch', (event) => {
           if (req.destination === 'image') {
             return new Response('', { status: 503, statusText: 'Offline' })
           }
-          return undefined
+          return new Response('Offline', { status: 503, statusText: 'Offline' })
         })
     }),
   )

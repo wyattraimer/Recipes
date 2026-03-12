@@ -757,27 +757,56 @@ function App() {
 
     navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
 
-    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).then((registration) => {
-      swRegistrationRef.current = registration
-
-      if (registration.waiting) {
-        setShowSwUpdateBanner(true)
+    const checkForUpdates = () => {
+      const registration = swRegistrationRef.current
+      if (!registration) {
+        return
       }
+      registration.update().catch(() => undefined)
+    }
 
-      registration.addEventListener('updatefound', () => {
-        const installingWorker = registration.installing
-        if (!installingWorker) {
+    const onVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        checkForUpdates()
+      }
+    }
+
+    navigator.serviceWorker
+      .register(`${import.meta.env.BASE_URL}sw.js`)
+      .then((registration) => {
+        swRegistrationRef.current = registration
+
+        if (registration.waiting) {
+          registration.waiting.postMessage({ type: 'SKIP_WAITING' })
           return
         }
-        installingWorker.addEventListener('statechange', () => {
-          if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            setShowSwUpdateBanner(true)
-          }
-        })
-      })
-    })
 
-    return () => navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
+        registration.addEventListener('updatefound', () => {
+          const installingWorker = registration.installing
+          if (!installingWorker) {
+            return
+          }
+          installingWorker.addEventListener('statechange', () => {
+            if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              installingWorker.postMessage({ type: 'SKIP_WAITING' })
+            }
+          })
+        })
+
+        checkForUpdates()
+      })
+      .catch(() => undefined)
+
+    const periodicUpdateCheck = window.setInterval(checkForUpdates, 60 * 1000)
+    window.addEventListener('focus', onVisibilityOrFocus)
+    document.addEventListener('visibilitychange', onVisibilityOrFocus)
+
+    return () => {
+      window.clearInterval(periodicUpdateCheck)
+      window.removeEventListener('focus', onVisibilityOrFocus)
+      document.removeEventListener('visibilitychange', onVisibilityOrFocus)
+      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
+    }
   }, [])
 
   useEffect(() => {
