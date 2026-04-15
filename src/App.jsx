@@ -117,6 +117,7 @@ const DEFAULT_RECIPES = [
 const STORAGE_KEY = 'recipeBookmarks'
 const THEME_KEY = 'recipeTheme'
 const MEAL_PLAN_KEY = 'recipeMealPlan'
+const DISH_DEPOT_NOTICE_KEY = 'recipeDishDepotNoticeDismissed'
 const FALLBACK_API_BASE =
   import.meta.env.PROD && window.location.hostname.endsWith('coloradomesa.edu')
     ? 'https://recipes-zmky.onrender.com/api'
@@ -518,6 +519,9 @@ function App() {
   const [showSwUpdateBanner, setShowSwUpdateBanner] = useState(false)
   const [showBackToTop, setShowBackToTop] = useState(false)
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
+  const [showDishDepotNotice, setShowDishDepotNotice] = useState(() => {
+    return localStorage.getItem(DISH_DEPOT_NOTICE_KEY) !== 'true'
+  })
   const [theme, setTheme] = useState(() => {
     const savedTheme = localStorage.getItem(THEME_KEY)
     return savedTheme === 'dark' ? 'dark' : 'light'
@@ -902,6 +906,21 @@ function App() {
   function closeExportPreview() {
     setIsExportPreviewOpen(false)
     setExportCandidates([])
+  }
+
+  function dismissDishDepotNotice() {
+    setShowDishDepotNotice(false)
+    localStorage.setItem(DISH_DEPOT_NOTICE_KEY, 'true')
+  }
+
+  function openDishDepot() {
+    dismissDishDepotNotice()
+    window.open('https://dishdepot.app', '_blank', 'noopener,noreferrer')
+  }
+
+  function handleDishDepotExport() {
+    dismissDishDepotNotice()
+    exportRecipes()
   }
 
   function toggleTheme() {
@@ -1737,6 +1756,54 @@ function App() {
               {message.text}
             </div>
           ))}
+        </div>
+      ) : null}
+
+      {showDishDepotNotice ? (
+        <div className="modal show" role="dialog" aria-modal="true" aria-labelledby="dish-depot-notice-title" onClick={dismissDishDepotNotice}>
+          <div className="modal-content migration-notice-modal" onClick={(event) => event.stopPropagation()}>
+            <button
+              className="close migration-notice-close"
+              type="button"
+              aria-label="Dismiss Dish Depot notice"
+              onClick={dismissDishDepotNotice}
+            >
+              &times;
+            </button>
+
+            <div className="migration-notice-eyebrow">Important update</div>
+            <h2 id="dish-depot-notice-title">Recipe Collector has moved to Dish Depot</h2>
+            <p className="migration-notice-copy">
+              Recipe Collector has been replaced by <strong>Dish Depot</strong>. You can now use the new app at{' '}
+              <a href="https://dishdepot.app" target="_blank" rel="noreferrer" className="migration-notice-link">
+                dishdepot.app
+              </a>
+              .
+            </p>
+            <p className="migration-notice-copy">
+              Before you switch, export your recipes here, then upload that file into Dish Depot so you can keep using everything there.
+            </p>
+
+            <ol className="migration-notice-steps">
+              <li>Use the Export button in Recipe Collector to download your recipes.</li>
+              <li>Open Dish Depot at dishdepot.app.</li>
+              <li>Upload your exported recipe file in Dish Depot and keep cooking.</li>
+            </ol>
+
+            <div className="migration-notice-actions">
+              <button className="btn btn-primary" type="button" onClick={handleDishDepotExport}>
+                <i className="fas fa-download" />
+                Export Recipes
+              </button>
+              <button className="btn btn-secondary" type="button" onClick={openDishDepot}>
+                <i className="fas fa-up-right-from-square" />
+                Open Dish Depot
+              </button>
+              <button className="btn btn-secondary" type="button" onClick={dismissDishDepotNotice}>
+                Remind Me Later
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
